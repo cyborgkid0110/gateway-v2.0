@@ -1,0 +1,10 @@
+2025-02-13 09:39:05,396 WARN received SIGTERM indicating exit request
+2025-02-13 09:39:05,396 INFO waiting for django, mqtt_gateway_to_server to die
+2025-02-13 09:39:06,398 WARN stopped: mqtt_gateway_to_server (terminated by SIGTERM)
+2025-02-13 09:39:06,508 INFO stopped: django (exit status 0)
+2025-02-13 09:39:09,096 CRIT Supervisor is running as root.  Privileges were not dropped because no user is specified in the config file.  If you intend to run as root, you can set user=root in the config file to avoid this message.
+2025-02-13 09:39:09,098 INFO supervisord started with pid 1
+2025-02-13 09:39:10,101 INFO spawned: 'django' with pid 11
+2025-02-13 09:39:10,103 INFO spawned: 'mqtt_gateway_to_server' with pid 12
+2025-02-13 09:39:11,938 INFO success: django entered RUNNING state, process has stayed up for > than 1 seconds (startsecs)
+2025-02-13 09:39:11,938 INFO success: mqtt_gateway_to_server entered RUNNING state, process has stayed up for > than 1 seconds (startsecs)
