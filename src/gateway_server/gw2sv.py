@@ -35,7 +35,7 @@ NEW_NODE_TOPIC = "farm/node/new"
 DELETE_NODE_TOPIC = "farm/node/delete"
 KEEPALIVE_ACK_TOPIC = "farm/monitor/alive"
 
-BROKER_SERVER = 'test.mosquitto.org'
+BROKER_SERVER = '192.168.8.103'     # test broker
 PORT = 1883
 KEEPALIVE = 60
 
