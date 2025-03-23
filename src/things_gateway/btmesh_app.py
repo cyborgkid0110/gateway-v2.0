@@ -21,13 +21,12 @@ OPCODE_UPDATE_LOCAL_KEYS        = 0x02
 OPCODE_SCAN_UNPROV_DEV          = 0x03
 OPCODE_PROVISIONER_DISABLE      = 0x04
 OPCODE_ADD_UNPROV_DEV           = 0x05
-OPCODE_SEND_ASSIGNED_DEV_INFO   = 0x06
-OPCODE_DELETE_DEVICE            = 0x07
-OPCODE_GET_COMPOSITION_DATA     = 0x08
-OPCODE_ADD_APP_KEY              = 0x09
-OPCODE_BIND_MODEL_APP           = 0x0A
-OPCODE_SET_MODEL_PUB            = 0x0B
-OPCODE_SET_MODEL_SUB            = 0x0C
+OPCODE_DELETE_DEVICE            = 0x06
+OPCODE_GET_COMPOSITION_DATA     = 0x07
+OPCODE_ADD_APP_KEY              = 0x08
+OPCODE_BIND_MODEL_APP           = 0x09
+OPCODE_SET_MODEL_PUB            = 0x0A
+OPCODE_SET_MODEL_SUB            = 0x0B
 
 OPCODE_SCAN_RESULT = 0x40
 OPCODE_SEND_NEW_NODE_INFO = 0x41
@@ -38,20 +37,12 @@ OPCODE_TEST_SIMPLE_MSG = 0xC4
 RESPONSE_BYTE_STATUS_OK = 0x01
 RESPONSE_BYTE_STATUS_FAILED = 0x02
 
-ser = None
-uuid_target = None
-addr_target = None
-addr_type_target = None
-oob_info_target = None
-bearer_target = None
-
-net_idx_target = None
-primary_unicast_target = None 
-
-detected_device = 0
-scan_status = 0
+ser = None                      # serial COM
 provision_pending = 0
-provision_status = 0
+
+bus = None
+gw_service = None               # Gateway Service D-Bus Object
+gw_service_interface = None     # Gateway Service D-Bus Interface
 
 # Ultilities
 def split_bytearray(data, n):
@@ -65,24 +56,6 @@ def uuid_str_to_bytes(uuid):
 def mac_str_to_bytes(mac):
     mac_bytes = bytes(int(part, 16) for part in mac.split(':'))
     return mac_bytes
-
-# Initialize UART
-def setup_uart():
-    try:
-        ser = serial.Serial(USB_PORT, USB_BAUDRATE)
-        time.sleep(1)
-        print("Serial connection established")
-        return ser
-
-    except serial.SerialException as e:
-        return None
-
-def restart_uart(ser):
-    if ser and ser.is_open:
-        ser.close()
-        print("Restart connection.")
-    time.sleep(1)
-    return setup_uart()
 
 # transmit functions
 def send_message_to_esp32(msg, pack_format):
@@ -114,10 +87,6 @@ def add_device_cmd(uuid, addr, addr_type, oob_info, bearer):
 
     msg = [OPCODE_ADD_UNPROV_DEV, uuid, addr, addr_type, oob_info, bearer, checksum]
     send_message_to_esp32(msg, '<B16s6sBHBB')
-
-# def send_assigned_node_info_cmd():
-#     msg = [OPCODE_SEND_ASSIGNED_DEV_INFO]
-#     send_message_to_esp32(msg, '<B')
 
 def delete_node_cmd(unicast):
     checksum = ~(OPCODE_GET_COMPOSITION_DATA 
@@ -210,8 +179,6 @@ class MeshGateway():
             self.recv_stop_scan()
         elif (opcode == OPCODE_ADD_UNPROV_DEV):
             self.recv_add_unprov_dev()
-        # elif (opcode == OPCODE_SEND_ASSIGNED_DEV_INFO):
-        #     self.recv_send_assigned_dev_info()
         elif (opcode == OPCODE_DELETE_DEVICE):
             self.recv_delete_device()
         elif (opcode == OPCODE_GET_COMPOSITION_DATA):
@@ -254,48 +221,85 @@ class MeshGateway():
             print('Updated keys successfully')
 
     def recv_scan_unprov_dev(self):
-        global scan_status
-        
         msg = self.ser.read(2)
         status, checksum = struct.unpack('<BB', msg)
         check = (OPCODE_SCAN_UNPROV_DEV + sum(msg)) & 0xFF
         if check != 0xFF:
             print('Wrong checksum')
-            scan_status = 0
+            status = RESPONSE_BYTE_STATUS_FAILED
         elif (status == RESPONSE_BYTE_STATUS_FAILED):
             print('Cannot start scan')
-            scan_status = 0
         else:
             print('Start scan')
 
+        dbus_msg = True if status == RESPONSE_BYTE_STATUS_OK else False
+        if gw_service is None or gw_service_interface is None:
+            dbus_call_proxy_object()
+        if gw_service is not None and gw_service_interface is not None:
+            gw_service_interface.BtmeshScanDeviceAck(dbus_msg)
+
     def recv_add_unprov_dev(self):
-        msg = self.ser.read(2)
-        status, checksum = struct.unpack('<BB', msg)
+        msg = self.ser.read(28)
+        uuid, addr, addr_type, oob_info, bearer_type, status, checksum = struct.unpack('<16s6sBHBBB', msg)
         if ((OPCODE_ADD_UNPROV_DEV + sum(msg)) & 0xFF) != 0xFF:
             print('Wrong checksum')
+            status = RESPONSE_BYTE_STATUS_FAILED
         elif (status == RESPONSE_BYTE_STATUS_FAILED):
             print('Cannot start provisioning')
         else:
             print('Start provisioning')
 
+        uuid_str = uuid.hex()
+        addr_str = ":".join(f"{b:02X}" for b in addr)
+
+        dbus_msg = {
+            'uuid': uuid_str,
+            'device_name': 'IPAC_LAB_SMART_FARM',
+            'mac': addr_str,
+            'address_type': addr_type,
+            'oob_info': oob_info,
+            'adv_type': 1,           # currently not synchronized
+            'status': (1 if status == RESPONSE_BYTE_STATUS_OK else 0),
+            'bearer_type': ('PB-ADV' if bearer_type == 1 else 'PB-GATT'),
+        }
+
+        if gw_service is None or gw_service_interface is None:
+            dbus_call_proxy_object()
+        if gw_service is not None and gw_service_interface is not None:
+            gw_service_interface.BtmeshAddNodeAck(dbus_msg)
+
     def recv_stop_scan(self):
-        global scan_status
         msg = self.ser.read(2)
         status, checksum = struct.unpack('<BB', msg)
         check = (OPCODE_PROVISIONER_DISABLE + sum(msg)) & 0xFF
         if check != 0xFF:
             print('Wrong checksum')
-            scan_status = 1
         elif (status == RESPONSE_BYTE_STATUS_FAILED):
             print('Cannot stop scan')
-            scan_status = 1
         else:
             print('Scan stopped. Provisioner is disabled')
 
-    def recv_send_assigned_dev_info(self):
-        pass
     def recv_delete_device(self):
-        pass
+        msg = self.ser.read(4)
+        unicast, status, checksum = struct.unpack('<HBB', msg)
+        check = (OPCODE_DELETE_DEVICE + sum(msg)) & 0xFF
+        if check != 0xFF:
+            print('Wrong checksum')
+            status = RESPONSE_BYTE_STATUS_FAILED
+        elif (status == RESPONSE_BYTE_STATUS_FAILED):
+            print('Cannot delete node')
+        else:
+            print('Node deleted. Removing node in database')
+
+        # assume there's only one delete target per time
+        dbus_msg = {
+            'unicast': unicast,
+            'status': (0 if status == RESPONSE_BYTE_STATUS_FAILED else 1),
+        }
+        if gw_service is None or gw_service_interface is None:
+            dbus_call_proxy_object()
+        if gw_service is not None and gw_service_interface is not None:
+            gw_service_interface.BtmeshDeleteNodeAck(dbus_msg)
 
     def recv_get_composition_data(self):
         msg = self.ser.read(4)
@@ -350,7 +354,7 @@ class MeshGateway():
         print('-------------Composition Data Status-------------')
         print(f'Primary unicast: {unicast}')
         print(comp_data)
-        add_appkey_cmd(primary_unicast_target)
+        add_appkey_cmd(unicast)
 
     def recv_add_app_key_status(self):
         msg = self.ser.read(4)
@@ -363,7 +367,7 @@ class MeshGateway():
         print('-----------------Add Appkey Status---------------')
         print(f'Unicast address: {hex(unicast)}')
         print(f'Status code: {hex(status)}')
-        model_app_bind_cmd(primary_unicast_target, 0x1000, 0xFFFF)
+        model_app_bind_cmd(unicast, 0x1000, 0xFFFF)
 
     def recv_bind_model_status(self):
         msg = self.ser.read(8)
@@ -376,7 +380,7 @@ class MeshGateway():
         print(f'Unicast address: {hex(ele_addr)}')
         print(f'Vendor Model ID: {hex(company_id)} {hex(model_id)}')
         print(f'Status code: {hex(status)}')
-        model_pub_set_cmd(primary_unicast_target, 0xC000, 0x1000, 0xFFFF)
+        model_pub_set_cmd(ele_addr, 0xC000, 0x1000, 0xFFFF)
 
     def recv_model_pub_status(self):
         msg = self.ser.read(10)
@@ -390,7 +394,7 @@ class MeshGateway():
         print(f'Group address: {hex(group_addr)}')
         print(f'Vendor Model ID: {hex(company_id)} {hex(model_id)}')
         print(f'Status code: {hex(status)}')
-        model_sub_set_cmd(primary_unicast_target, 0xC000, 0x1000, 0xFFFF)
+        model_sub_set_cmd(ele_addr, 0xC000, 0x1000, 0xFFFF)
 
     def recv_model_sub_status(self):
         msg = self.ser.read(10)
@@ -405,28 +409,28 @@ class MeshGateway():
         print(f'Vendor Model ID: {hex(company_id)} {hex(model_id)}')
         print(f'Status code: {hex(status)}')
 
+        print('------------Node Configuration Status------------')
+        print(f'Node {ele_addr} configured successfully')
+
     def recv_scan_result(self):
-        global uuid_target
-        global addr_target
-        global addr_type_target
-        global oob_info_target
-        global bearer_target
-        global detected_device
-        
         msg = self.ser.read(29)
         uuid, addr, addr_type, oob_info, adv_type, bearer, rssi, checksum = struct.unpack('<16s6sBHBBbB', msg)
-        if (detected_device == 1) or (bearer == 2):
+        if (bearer == 2):           # (optional) we don't accept 'PB-GATT' 
             return
 
         if ((sum(msg) + OPCODE_SCAN_RESULT) & 0xFF) != 0xFF:
             print('Wrong checksum')
         else:
-            detected_device = 1
-            uuid_target = uuid
-            addr_target = addr
-            addr_type_target = adv_type
-            oob_info_target = oob_info
-            bearer_target = bearer
+            # {
+            #     'uuid': , (str)
+            #     'mac': ,  (str)
+            #     'device_name': IPAC_LAB_SMART_FARM      # this name should be assigned from device
+            #     'address_type': int,
+            #     'oob_info': int,
+            #     'adv_type': (str),
+            #     'bearer_type': (str),
+            #     'rssi': int,
+            # }
 
             uuid_str = uuid.hex()
             addr_str = ":".join(f"{b:02X}" for b in addr)
@@ -441,19 +445,33 @@ class MeshGateway():
             print(f'Bearer type: {bearer} {bearer_type}')
             print(f'RSSI: {rssi}')
 
-    def recv_new_node_info(self):
-        global net_idx_target
-        global primary_unicast_target
-        global provision_status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
+            dbus_msg = {
+                'uuid': uuid_str,
+                'mac': addr_str, 
+                'device_name': 'IPAC_LAB_SMART_FARM',      # this name should be assigned from device
+                'address_type': addr_type,
+                'oob_info': oob_info,
+                'adv_type': adv_type,
+                'bearer_type': bearer_type,
+                'rssi': rssi,
+            }
+            if gw_service is None or gw_service_interface is None:
+                dbus_call_proxy_object()
+            if gw_service is not None and gw_service_interface is not None:
+                gw_service_interface.BtmeshScanResult(dbus_msg)
 
+    def recv_new_node_info(self):
         msg = self.ser.read(24)
         node_idx, uuid, unicast, net_idx, elem_num, checksum = struct.unpack('<H16sHHBB', msg)
         if (sum(msg) + OPCODE_SEND_NEW_NODE_INFO & 0xFF) != 0xFF:
             print('Wrong checksum')
         else:
-            net_idx_target = net_idx
-            primary_unicast_target = unicast
-            provision_status = 1
+            # {
+            #     'function': (str),
+            #     'uuid': (str),
+            #     'device_name': IPAC_LAB_SMART_FARM
+            #     'unicast': int,
+            # }
 
             uuid_str = uuid.hex()
             print('-------------------New node info-----------------')
@@ -462,6 +480,18 @@ class MeshGateway():
             print(f'Primary unicast: {hex(unicast)}')
             print(f'NetKey id: {hex(net_idx)}')
             print(f'Element: {hex(elem_num)}')
+
+            get_composition_data_cmd(unicast)             # configuration node start here
+            dbus_msg = {
+                'function': 'sensor'                      # get function from device
+                'uuid': uuid_str,
+                'device_name': 'IPAC_LAB_SMART_FARM',     # this name should be assigned from device
+                'unicast': unicast,
+            }
+            if gw_service is None or gw_service_interface is None:
+                dbus_call_proxy_object()
+            if gw_service is not None and gw_service_interface is not None:
+                gw_service_interface.BtmeshNewNodeInfo(dbus_msg)
 
     def recv_test_simple_msg(self):
         msg = self.ser.read(2)
@@ -476,6 +506,7 @@ class MeshGateway():
 
 class BluetoothMeshService(dbus.service.Object):
     def __init__(self, bus_name, object_path='/org/ipac/btmesh'):
+        bus_name = dbus.service.BusName('org.ipac.btmesh', bus=bus)
         dbus.service.Object.__init__(self, bus_name, object_path)
 
     @dbus.service.method('org.ipac.btmesh', in_signature='', out_signature='')
@@ -484,31 +515,54 @@ class BluetoothMeshService(dbus.service.Object):
 
     @dbus.service.method('org.ipac.btmesh', in_signature='a{sv}', out_signature='')
     def BtmeshAddDevice(self, unprov_dev):
-        uuid = uuid_str_to_bytes(unprov_dev['uuid'])
-        mac = uuid_str_to_bytes(unprov_dev['mac'])
-        add_device_cmd(uuid, mac, unprov_dev['addr_type'], unprov_dev['oob_info'], unprov_dev['bearer'])
+        if provision_pending == True:
+            dbus_msg = {
+                'uuid': unprov_dev['uuid'],
+                'device_name': unprov_dev['device_name'],
+                'mac': unprov_dev['mac'],
+                'address_type': unprov_dev['address_type'],
+                'oob_info': unprov_dev['oob_info'],
+                'adv_type': unprov_dev['adv_type'],           # currently not synchronized
+                'status': 0,
+                'bearer_type': unprov_dev['bearer_type'],
+            }
+            if gw_service is None or gw_service_interface is None:
+                dbus_call_proxy_object()
+            if gw_service is not None and gw_service_interface is not None:
+                gw_service_interface.BtmeshAddNodeAck(dbus_msg)
+        else:
+            uuid = uuid_str_to_bytes(unprov_dev['uuid'])
+            mac = uuid_str_to_bytes(unprov_dev['mac'])
+            bearer = 1 if (unprov_dev['bearer_type'] == 'PB-ADV') else 2
+            add_device_cmd(uuid, mac, unprov_dev['addr_type'], unprov_dev['oob_info'], bearer)
 
     @dbus.service.method('org.ipac.btmesh', in_signature='', out_signature='')
     def BtmeshDeleteNode(self, dev_info):
         delete_node_cmd(dev_info['unicast'])
+
+def dbus_call_proxy_object():
+    global gw_service
+    global gw_service_interface
     
-    # @dbus.service.method('org.ipac.btmesh', in_signature='', out_signature='')
-    # def BtmeshSendAssignedNodeInfo(self, dev_info):
-    #     send_assigned_node_info_cmd()
+    try:
+        gw_service = bus.get_object('org.ipac.gateway', '/org/ipac/gateway')
+        gw_service_interface = dbus.Interface(gw_service, 'org.ipac.gateway')
+    except dbus.exceptions.DBusException:
+        print('Cannot connect to GatewayService')
 
 def dbus_handler():
     DBusGMainLoop(set_as_default=True)
-    bus_name = dbus.service.BusName('org.ipac.Service', bus=dbus.SessionBus())
+    global bus
+
+    bus = dbus.SessionBus()
+    bus_name = dbus.service.BusName('org.ipac.Service', bus=bus)
     btmesh_service = BluetoothMeshService(bus_name)
     print("BluetoothMeshService is running.")
     # Start the main loop to process incoming D-Bus messages
     GLib.MainLoop().run()
 
 def btmesh_app():
-    global scan_status
-    global provision_pending
     global ser
-    global provision_status
     state = INITIAL_STATE
     retry_read = 0
     ser = UART(USB_PORT, USB_BAUDRATE)
@@ -526,22 +580,8 @@ def btmesh_app():
             # get_local_keys_cmd()
             state = IDLE_STATE
         elif (state == IDLE_STATE):
-            if detected_device == 0 and scan_status == 0:
-                scan_device_cmd()
-                print('Sent scan cmd')
-                scan_status = 1
-            elif detected_device == 1 and provision_pending == 0:
-                add_device_cmd(uuid_target, addr_target, addr_type_target, oob_info_target, bearer_target)
-                # elif detected_device == 1: provision_pending = 1
-                provision_pending = 1
-                scan_status = 0
-            
-            if provision_status == 1:
-                get_composition_data_cmd(primary_unicast_target)
-                provision_status = 2
-
             # time.sleep(1)
-            # Ch# elif detected_device == 1:eck for incoming data
+            # Check for incoming data
             rlist, _, _ = select.select([ser], [], [], 0.1)  # Non-blocking check
             if rlist:
                 try:
@@ -550,11 +590,10 @@ def btmesh_app():
                         print(f'Opcode: {opcode.hex()} {opcode}')
                     if (opcode is None) or (opcode == 0x00):
                         retry_read += 1
+                    else:
+                        read_opcode(opcode)
                 except serial.SerialException:
                     retry_read += 1
-
-                read_opcode(opcode)
-
             # else:
             #     print('No response')
 

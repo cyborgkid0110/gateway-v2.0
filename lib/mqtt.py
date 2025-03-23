@@ -31,16 +31,16 @@ class Client(mqtt.Client):
         if rc == 0:
             self.__logger.info("Disconnected to broker")
 
-    def on_message(self, client, userdata, msg):
-        """Called when a message has been received on a topic that the client subscribes to"""
-        # self.__logger.info("Received message from broker")
-        # self.__check = True
-        self.__msg = msg.payload.decode("utf-8")
-        # self.__msg = json.loads(msg.payload.decode())
-        for topic in self.__topic['subscribe']:
-            if (msg.topic == topic.name):
-                topic.action(self.__msg)
-                break
+    # def on_message(self, client, userdata, msg):
+    #     """Called when a message has been received on a topic that the client subscribes to"""
+    #     # self.__logger.info("Received message from broker")
+    #     # self.__check = True
+    #     self.__msg = msg.payload.decode("utf-8")
+    #     # self.__msg = json.loads(msg.payload.decode())
+    #     for topic in self.__topic['subscribe']:
+    #         if (msg.topic == topic.name):
+    #             topic.action(self.__msg)
+    #             break
 
     def on_publish(self, client, userdata, mid):
         '''Called when publish() function has been used'''
