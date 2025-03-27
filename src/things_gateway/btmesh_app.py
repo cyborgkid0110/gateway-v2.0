@@ -6,6 +6,11 @@ import asyncio
 import uuid
 import threading
 
+import dbus
+import dbus.service
+from dbus.mainloop.glib import DBusGMainLoop
+from gi.repository import GLib
+
 INITIAL_STATE = 0
 IDLE_STATE = 1
 PROVISIONING_STATE = 2
@@ -61,8 +66,8 @@ def mac_str_to_bytes(mac):
 def send_message_to_esp32(msg, pack_format):
     packet = struct.pack(pack_format, *msg)
     print(f'Packet: {packet}')
-    ser.write(packet)
-    ser.flush()
+    ser.ser.write(packet)
+    ser.ser.flush()
 
 def get_local_keys_cmd():
     msg = [OPCODE_GET_LOCAL_KEYS]
@@ -198,7 +203,7 @@ class MeshGateway():
             self.recv_new_node_info()
     
     def recv_get_local_keys(self):
-        msg = self.ser.read(34)
+        msg = self.ser.ser.read(34)
         status, net_key, app_key, checksum = struct.unpack('<B16s16sB', msg)
         if ((OPCODE_GET_LOCAL_KEYS + sum(msg)) & 0xFF) != 0xFF:
             print('Wrong checksum')
@@ -210,7 +215,7 @@ class MeshGateway():
             print(f'Appkey: {app_key.hex()}')
 
     def recv_update_local_keys(self):
-        msg = self.ser.read(2)
+        msg = self.ser.ser.read(2)
         status, checksum = struct.unpack('<BB', msg)
         
         if ((OPCODE_UPDATE_LOCAL_KEYS + sum(msg)) & 0xFF) != 0xFF:
@@ -221,7 +226,7 @@ class MeshGateway():
             print('Updated keys successfully')
 
     def recv_scan_unprov_dev(self):
-        msg = self.ser.read(2)
+        msg = self.ser.ser.read(2)
         status, checksum = struct.unpack('<BB', msg)
         check = (OPCODE_SCAN_UNPROV_DEV + sum(msg)) & 0xFF
         if check != 0xFF:
@@ -239,7 +244,7 @@ class MeshGateway():
             gw_service_interface.BtmeshScanDeviceAck(dbus_msg)
 
     def recv_add_unprov_dev(self):
-        msg = self.ser.read(28)
+        msg = self.ser.ser.read(28)
         uuid, addr, addr_type, oob_info, bearer_type, status, checksum = struct.unpack('<16s6sBHBBB', msg)
         if ((OPCODE_ADD_UNPROV_DEV + sum(msg)) & 0xFF) != 0xFF:
             print('Wrong checksum')
@@ -269,7 +274,7 @@ class MeshGateway():
             gw_service_interface.BtmeshAddNodeAck(dbus_msg)
 
     def recv_stop_scan(self):
-        msg = self.ser.read(2)
+        msg = self.ser.ser.read(2)
         status, checksum = struct.unpack('<BB', msg)
         check = (OPCODE_PROVISIONER_DISABLE + sum(msg)) & 0xFF
         if check != 0xFF:
@@ -280,7 +285,7 @@ class MeshGateway():
             print('Scan stopped. Provisioner is disabled')
 
     def recv_delete_device(self):
-        msg = self.ser.read(4)
+        msg = self.ser.ser.read(4)
         unicast, status, checksum = struct.unpack('<HBB', msg)
         check = (OPCODE_DELETE_DEVICE + sum(msg)) & 0xFF
         if check != 0xFF:
@@ -302,12 +307,12 @@ class MeshGateway():
             gw_service_interface.BtmeshDeleteNodeAck(dbus_msg)
 
     def recv_get_composition_data(self):
-        msg = self.ser.read(4)
+        msg = self.ser.ser.read(4)
         unicast, comp_data_len = struct.unpack('<HH', msg)
         print(f'Unicast: {unicast}')
         print(f'Composition data len: {comp_data_len}')
         
-        comp_data_raw = ser.read(comp_data_len + 1)
+        comp_data_raw = ser.ser.read(comp_data_len + 1)
         print()
         if ((sum(msg) + sum(comp_data_raw) + OPCODE_GET_COMPOSITION_DATA) & 0xFF) != 0xFF:
             print('Wrong checksum')
@@ -357,7 +362,7 @@ class MeshGateway():
         add_appkey_cmd(unicast)
 
     def recv_add_app_key_status(self):
-        msg = self.ser.read(4)
+        msg = self.ser.ser.read(4)
         unicast, status, checksum = struct.unpack('<HBB', msg)
 
         if ((sum(msg) + OPCODE_ADD_APP_KEY) & 0xFF) != 0xFF:
@@ -370,7 +375,7 @@ class MeshGateway():
         model_app_bind_cmd(unicast, 0x1000, 0xFFFF)
 
     def recv_bind_model_status(self):
-        msg = self.ser.read(8)
+        msg = self.ser.ser.read(8)
         ele_addr, model_id, company_id, status, checksum = struct.unpack('<HHHBB', msg)
         if ((sum(msg) + OPCODE_BIND_MODEL_APP) & 0xFF) != 0xFF:
             print('Wrong checksum')
@@ -383,7 +388,7 @@ class MeshGateway():
         model_pub_set_cmd(ele_addr, 0xC000, 0x1000, 0xFFFF)
 
     def recv_model_pub_status(self):
-        msg = self.ser.read(10)
+        msg = self.ser.ser.read(10)
         ele_addr, group_addr, model_id, company_id, status, checksum = struct.unpack('<HHHHBB', msg)
         if ((sum(msg) + OPCODE_SET_MODEL_PUB) & 0xFF) != 0xFF:
             print('Wrong checksum')
@@ -397,7 +402,7 @@ class MeshGateway():
         model_sub_set_cmd(ele_addr, 0xC000, 0x1000, 0xFFFF)
 
     def recv_model_sub_status(self):
-        msg = self.ser.read(10)
+        msg = self.ser.ser.read(10)
         ele_addr, group_addr, model_id, company_id, status, checksum = struct.unpack('<HHHHBB', msg)
         if ((sum(msg) + OPCODE_SET_MODEL_SUB) & 0xFF) != 0xFF:
             print('Wrong checksum')
@@ -413,7 +418,7 @@ class MeshGateway():
         print(f'Node {ele_addr} configured successfully')
 
     def recv_scan_result(self):
-        msg = self.ser.read(29)
+        msg = self.ser.ser.read(29)
         uuid, addr, addr_type, oob_info, adv_type, bearer, rssi, checksum = struct.unpack('<16s6sBHBBbB', msg)
         if (bearer == 2):           # (optional) we don't accept 'PB-GATT' 
             return
@@ -461,7 +466,7 @@ class MeshGateway():
                 gw_service_interface.BtmeshScanResult(dbus_msg)
 
     def recv_new_node_info(self):
-        msg = self.ser.read(24)
+        msg = self.ser.ser.read(24)
         node_idx, uuid, unicast, net_idx, elem_num, checksum = struct.unpack('<H16sHHBB', msg)
         if (sum(msg) + OPCODE_SEND_NEW_NODE_INFO & 0xFF) != 0xFF:
             print('Wrong checksum')
@@ -483,7 +488,7 @@ class MeshGateway():
 
             get_composition_data_cmd(unicast)             # configuration node start here
             dbus_msg = {
-                'function': 'sensor'                      # get function from device
+                'function': 'sensor',                      # get function from device
                 'uuid': uuid_str,
                 'device_name': 'IPAC_LAB_SMART_FARM',     # this name should be assigned from device
                 'unicast': unicast,
@@ -494,7 +499,7 @@ class MeshGateway():
                 gw_service_interface.BtmeshNewNodeInfo(dbus_msg)
 
     def recv_test_simple_msg(self):
-        msg = self.ser.read(2)
+        msg = self.ser.ser.read(2)
         status, checksum = struct.unpack('<BB', msg)
         print(f'Received: {msg}')
         if ((status + OPCODE_TEST_SIMPLE_MSG + checksum) & 0xFF) != 0xFF:
@@ -554,8 +559,8 @@ def dbus_handler():
     DBusGMainLoop(set_as_default=True)
     global bus
 
-    bus = dbus.SessionBus()
-    bus_name = dbus.service.BusName('org.ipac.Service', bus=bus)
+    bus = dbus.SystemBus()
+    bus_name = dbus.service.BusName('org.ipac.btmesh', bus=bus)
     btmesh_service = BluetoothMeshService(bus_name)
     print("BluetoothMeshService is running.")
     # Start the main loop to process incoming D-Bus messages
@@ -582,16 +587,16 @@ def btmesh_app():
         elif (state == IDLE_STATE):
             # time.sleep(1)
             # Check for incoming data
-            rlist, _, _ = select.select([ser], [], [], 0.1)  # Non-blocking check
+            rlist, _, _ = select.select([ser.ser], [], [], 0.1)  # Non-blocking check
             if rlist:
                 try:
-                    opcode = ser.read()
+                    opcode = ser.ser.read()
                     if (opcode.hex() != '40'):
                         print(f'Opcode: {opcode.hex()} {opcode}')
                     if (opcode is None) or (opcode == 0x00):
                         retry_read += 1
                     else:
-                        read_opcode(opcode)
+                        mesh_gw.read_opcode(opcode)
                 except serial.SerialException:
                     retry_read += 1
             # else:

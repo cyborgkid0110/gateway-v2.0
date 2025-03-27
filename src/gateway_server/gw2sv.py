@@ -1,12 +1,16 @@
-
+import sys
+sys.path.append('/home/pi/.local/lib/python3.9/site-packages')
+import paho.mqtt.client as mqtt
 # from lib.dao import SqliteDAO
 import json
 import time
-import sys
 import os
-# from lib.mqtt import Client, Topic
-import paho.mqtt.client as mqtt
+import threading
 from lib.logs import Log
+import dbus
+import dbus.service
+from dbus.mainloop.glib import DBusGMainLoop
+from gi.repository import GLib
 
 # serverTopics = {"data_request": "farm/monitor/sensor",        OK
 #                   "energy_data" : "farm/monitor/sensor",      OK
@@ -35,11 +39,12 @@ NEW_NODE_TOPIC = "farm/node/new"
 DELETE_NODE_TOPIC = "farm/node/delete"
 KEEPALIVE_ACK_TOPIC = "farm/monitor/alive"
 
-BROKER_SERVER = '192.168.8.103'     # test broker
+# BROKER_SERVER = '192.168.2.199'     # test broker
+BROKER_SERVER = 'test.mosquitto.org'     # test broker
 PORT = 1883
 KEEPALIVE = 60
 
-room_id = 1         # this must be taken from database
+room_id = 407         # this must be taken from database
 
 client = None       # MQTT client
 
@@ -270,12 +275,19 @@ class GatewayService(dbus.service.Object):
         if (res[0] != 0):
             print('Cannot send delete node result to server')
 
-def main():
+def dbus_handler():
+    DBusGMainLoop(set_as_default=True)
     global bus
-    global btmesh
-    global client
 
-    bus = dbus.SessionBus()
+    bus = dbus.SystemBus()
+    bus_name = dbus.service.BusName('org.ipac.gateway', bus=bus)
+    gw_service = GatewayService(bus_name)
+    print("GatewayService is running.")
+    # Start the main loop to process incoming D-Bus messages
+    GLib.MainLoop().run()
+
+def mqtt_handler():
+    global client
     topic = [
         SCAN_DEVICE_TOPIC,
         ADD_NODE_TOPIC,
@@ -285,6 +297,15 @@ def main():
     ]
 
     client = GatewayClient(topic)
-    client.on_message = on_message
     client.connect(BROKER_SERVER, PORT, KEEPALIVE)
     client.loop_forever()
+
+def main():
+    mqtt_handler_thread = threading.Thread(target=mqtt_handler)
+    dbus_handler_thread = threading.Thread(target=dbus_handler)
+
+    mqtt_handler_thread.start()
+    dbus_handler_thread.start()
+
+if __name__ == '__main__':
+    main()
