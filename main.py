@@ -3,6 +3,7 @@ import datetime
 from multiprocessing import Process
 from src.gateway_server import gw2sv
 from src.things_gateway import btmesh_app
+from src.shared import database
 
 class MultiTasks():
     def __init__(self, tasks):
@@ -24,10 +25,10 @@ class MultiTasks():
             
         self.start()
 
+database.createDatabase()
 tasks = []
 tasks.append(gw2sv.main)
 tasks.append(btmesh_app.main)
-
 multi_tasks = MultiTasks(tasks)
 multi_tasks.start()
 
@@ -41,4 +42,5 @@ while True:
     newMonth = date.month 
     if (newMonth != preMonth):
         multi_tasks.restart()
+        database.createDatabaseSchedule()
         preMonth = newMonth

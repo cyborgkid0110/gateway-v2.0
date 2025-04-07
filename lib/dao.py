@@ -133,16 +133,16 @@ class SqliteDAO:
     # # DISCLAIMED: These functions have not been tested
     # # UPDATE
     # # TODO: use rowid
-    # def updateOneRecord(self, tableName, new, condition):
-    #     try:
-    #         self.__connect__()
-    #         self.__do__(f"UPDATE {tableName} SET {new} WHERE {condition}")
-    #         self.__logger.info("Updated a record successfully")
-    #     except sqlite3.Error as error:
-    #         self.__logger.info("Updated a record unsuccessfully")
-    #         self.__logger.exception(error)
-    #     finally:
-    #         self.__close__()
+    def updateOneRecord(self, tableName, new, condition):
+        try:
+            self.__connect__()
+            self.__do__(f"UPDATE {tableName} SET {new} WHERE {condition}")
+            self.__logger.info("Updated a record successfully")
+        except sqlite3.Error as error:
+            self.__logger.info("Updated a record unsuccessfully")
+            self.__logger.exception(error)
+        finally:
+            self.__close__()
 
     # # DELETE
     # def deleteOneRecord(self, tableName, condition):

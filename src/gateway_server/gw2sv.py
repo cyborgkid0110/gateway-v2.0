@@ -1,7 +1,8 @@
 import sys
 sys.path.append('/home/pi/.local/lib/python3.9/site-packages')
 import paho.mqtt.client as mqtt
-# from lib.dao import SqliteDAO
+from lib.dao import SqliteDAO
+from src.shared import database
 import json
 import time
 import os
@@ -31,7 +32,6 @@ from gi.repository import GLib
 SENSOR_DATA_TOPIC = "farm/monitor/sensor"
 ACTUATOR_DATA_TOPIC = "farm/monitor/actuator"
 SEND_SETPOINT_TOPIC = "farm/control"
-SEND_SETPOINT_ACK_TOPIC = "farm/control" 
 
 SCAN_DEVICE_TOPIC = "farm/node/scan"
 ADD_NODE_TOPIC = "farm/node/add"
@@ -39,6 +39,7 @@ NEW_NODE_TOPIC = "farm/node/new"
 DELETE_NODE_TOPIC = "farm/node/delete"
 KEEPALIVE_ACK_TOPIC = "farm/monitor/alive"
 
+# BROKER_SERVER = '192.168.8.103'     # test broker
 # BROKER_SERVER = '192.168.2.199'     # test broker
 BROKER_SERVER = 'test.mosquitto.org'     # test broker
 PORT = 1883
@@ -87,6 +88,7 @@ def mqtt_recv_add_device(msg):
     if (msg['info']['room_id'] == room_id):
         if msg['operator'] == 'add_node':
             if (msg['info']['protocol'] == 'ble_mesh'):
+                dev_info = msg['info']['dev_info']
                 btmesh_interface.BtmeshAddDevice(msg['info']['dev_info'])
             elif (msg['info']['protocol'] == 'wifi'):
                 pass
@@ -101,7 +103,18 @@ def mqtt_recv_new_node_info(msg):
         if msg['operator'] == 'new_node_info_ack':
             # add node info database
             if (msg['info']['protocol'] == 'ble_mesh'):
-                pass
+                db = SqliteDAO(database.location)
+                node_info = db.__do__(f"SELECT uuid FROM BTMeshNodes WHERE unicast = {msg['info']['dev_info']['unicast']}")
+                db = SqliteDAO(database.location)
+                if len(node_info) != 0:
+                    uuid = node_info[0][0]
+                    if uuid != msg['info']['dev_info']['uuid']:
+                        print("Conflict UUIDs with node unicast")
+                else:
+                    record = database.RecordMaker(msg['info']['dev_info'])
+                    db.insertOneRecord("BTMeshNodes", record['fields'], record['values'])
+                    print(f"Add new node record: {record['fields']}, {record['values']}")
+                        
             elif (msg['info']['protocol'] == 'wifi'):
                 pass
 
@@ -143,6 +156,11 @@ class GatewayClient(mqtt.Client):
         """Called when a message has been received on a topic that the client subscribes to"""
         # self.__msg = msg.payload.decode("utf-8")
         self.__msg = json.loads(msg.payload.decode())
+        
+        if room_id is None:
+            print("Room ID is unknown.")
+            return
+
         if (msg.topic == SCAN_DEVICE_TOPIC):
             mqtt_recv_scan_device(self.__msg)
         if (msg.topic == ADD_NODE_TOPIC):
@@ -169,6 +187,10 @@ class GatewayService(dbus.service.Object):
 
     @dbus.service.method('org.ipac.gateway', in_signature='b', out_signature='')
     def BtmeshScanDeviceAck(self, scan_status):
+        if room_id is None:
+            print("Room ID is unknown.")
+            return
+
         msg = {
             'operator': 'scan_device_ack',
             'status': (1 if (scan_status == True) else 0),
@@ -184,6 +206,10 @@ class GatewayService(dbus.service.Object):
 
     @dbus.service.method('org.ipac.gateway', in_signature='a{sv}', out_signature='')
     def BtmeshScanResult(self, scan_result):
+        if room_id is None:
+            print("Room ID is unknown.")
+            return
+
         msg = {
             'operator': 'scan_result',
             'status': 1,
@@ -209,6 +235,10 @@ class GatewayService(dbus.service.Object):
 
     @dbus.service.method('org.ipac.gateway', in_signature='a{sv}', out_signature='')
     def BtmeshNewNodeInfo(self, new_node_info):
+        if room_id is None:
+            print("Room ID is unknown.")
+            return
+
         msg = {
             'operator': 'new_node_info',
             'status': 1,
@@ -230,6 +260,10 @@ class GatewayService(dbus.service.Object):
 
     @dbus.service.method('org.ipac.gateway', in_signature='a{sv}', out_signature='')
     def BtmeshAddNodeAck(self, add_node_ack):
+        if room_id is None:
+            print("Room ID is unknown.")
+            return
+
         msg = {
             'operator': 'add_node_ack',
             'status': add_node_ack['status'],
@@ -254,8 +288,17 @@ class GatewayService(dbus.service.Object):
     
     @dbus.service.method('org.ipac.gateway', in_signature='a{sv}', out_signature='')
     def BtmeshDeleteNodeAck(self, delete_node_ack):
-        node_id = 1                                 # for test only
-        uuid = 'cb5da3ba5e4445f6aa45898e961fad0f'   # must take from database
+        if room_id is None:
+            print("Room ID is unknown.")
+            return
+
+        db = SqliteDAO(database.location)
+        node_info = db.__do__(f"SELECT node_id, uuid FROM BTMeshNodes WHERE unicast = {delete_node_ack['unicast']}")
+        if len(node_info) == 0:
+            print("Cannot find node info from this unicast address")
+            return
+        node_id = node_info[0][0]
+        uuid = node_info[0][1]
         # after taking data from database, delete node if status = 1
         msg = {
             'operator': 'delete_node_ack',
@@ -274,6 +317,30 @@ class GatewayService(dbus.service.Object):
         res = client.publish(DELETE_NODE_TOPIC, pub_msg)
         if (res[0] != 0):
             print('Cannot send delete node result to server')
+
+    @dbus.service.method('org.ipac.gateway', in_signature='a{sv}', out_signature='')
+    def SaveSensorData(self, sensor_data):
+        if (sensor_data['protocol'] == 'ble_mesh'):
+            db = SqliteDAO(database.location)
+            data = sensor_data['data']
+            node_id = db.__do__(f"SELECT node_id FROM BTMeshNodes WHERE unicast = {sensor_data['unicast']}")
+            if node_id[0] is None:
+                print("Cannot find node ID from this unicast address")
+            else:
+                data['node_id'] = node_id[0][0]
+                print("NODE ID:", node_id)
+                record = database.RecordMaker(data)
+                db = SqliteDAO(database.location)
+                db.insertOneRecord("SensorMonitor", record['fields'], record['values'])
+                print(f"Inserted sensor data record: {record['fields']}, {record['values']}")
+
+def update_node_id():
+    global room_id
+
+    db = SqliteDAO(database.location)
+    room_info = db.__do__("SELECT room_id FROM RoomInfo")
+    if len(room_info) != 0:
+        room_id = room_info[0][0]
 
 def dbus_handler():
     DBusGMainLoop(set_as_default=True)

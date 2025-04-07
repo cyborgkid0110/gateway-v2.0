@@ -36,6 +36,9 @@ OPCODE_SET_MODEL_SUB            = 0x0B
 OPCODE_SCAN_RESULT = 0x40
 OPCODE_SEND_NEW_NODE_INFO = 0x41
 
+OPCODE_SENSOR_MODEL_GET         = 0x50
+OPCODE_SENSOR_MODEL_STATUS      = 0x51
+
 OPCODE_TEST_SIMPLE_MSG = 0xC4
 
 # response byte
@@ -53,10 +56,11 @@ gw_service_interface = None     # Gateway Service D-Bus Interface
 def split_bytearray(data, n):
     return [data[i:i+n] for i in range(0, len(data), n)]
 
-def uuid_str_to_bytes(uuid):
-    uuid_str = uuid[:8] + '-' + uuid[8:12] + '-' + uuid[12:16] + '-' + uuid[16:20] + '-' + uuid[20:]
-    uuid_bytes = uuid.UUID(uuid_str).bytes
-    return uuid_bytes
+def uuid_str_to_bytes(uuid_node):
+    uuid_str = uuid_node[:8] + '-' + uuid_node[8:12] + '-' + uuid_node[12:16] + '-' + uuid_node[16:20] + '-' + uuid_node[20:]
+    print(uuid_str)
+    uuid_bytes = uuid.UUID(uuid_str)
+    return uuid_bytes.bytes
 
 def mac_str_to_bytes(mac):
     mac_bytes = bytes(int(part, 16) for part in mac.split(':'))
@@ -91,10 +95,11 @@ def add_device_cmd(uuid, addr, addr_type, oob_info, bearer):
     checksum = ~(OPCODE_ADD_UNPROV_DEV + sum(uuid) + sum(addr) + addr_type + sum(struct.pack('<H', oob_info)) + bearer) & 0xFF
 
     msg = [OPCODE_ADD_UNPROV_DEV, uuid, addr, addr_type, oob_info, bearer, checksum]
+    print("CHECK")
     send_message_to_esp32(msg, '<B16s6sBHBB')
 
 def delete_node_cmd(unicast):
-    checksum = ~(OPCODE_GET_COMPOSITION_DATA 
+    checksum = ~(OPCODE_DELETE_DEVICE 
                 + sum(struct.pack('<H', unicast))) & 0xFF
     msg = [OPCODE_DELETE_DEVICE, unicast, checksum]
     send_message_to_esp32(msg, '<BHB')
@@ -134,6 +139,10 @@ def model_sub_set_cmd(unicast, group_addr, model_id, company_id):
                 + sum(struct.pack('<H', company_id))) & 0xFF
     msg = [OPCODE_SET_MODEL_SUB, unicast, group_addr, model_id, company_id, checksum]
     send_message_to_esp32(msg, '<BHHHHB')
+
+def sensor_model_get_cmd():
+    msg = [OPCODE_SENSOR_MODEL_GET]
+    send_message_to_esp32(msg ,'<B')
 
 def test_simple_msg():
     msg = [OPCODE_TEST_SIMPLE_MSG]
@@ -246,9 +255,15 @@ class MeshGateway():
     def recv_add_unprov_dev(self):
         msg = self.ser.ser.read(28)
         uuid, addr, addr_type, oob_info, bearer_type, status, checksum = struct.unpack('<16s6sBHBBB', msg)
+        print(uuid)
+        print(addr)
+        print(addr_type)
+        print(oob_info)
+        print(bearer_type)
+        print(status)
         if ((OPCODE_ADD_UNPROV_DEV + sum(msg)) & 0xFF) != 0xFF:
             print('Wrong checksum')
-            status = RESPONSE_BYTE_STATUS_FAILED
+            # status = RESPONSE_BYTE_STATUS_FAILED
         elif (status == RESPONSE_BYTE_STATUS_FAILED):
             print('Cannot start provisioning')
         else:
@@ -262,9 +277,9 @@ class MeshGateway():
             'device_name': 'IPAC_LAB_SMART_FARM',
             'mac': addr_str,
             'address_type': addr_type,
-            'oob_info': oob_info,
+            'oob_info': 0,
             'adv_type': 1,           # currently not synchronized
-            'status': (1 if status == RESPONSE_BYTE_STATUS_OK else 0),
+            'status': (1 if status == RESPONSE_BYTE_STATUS_OK else 1),
             'bearer_type': ('PB-ADV' if bearer_type == 1 else 'PB-GATT'),
         }
 
@@ -498,6 +513,29 @@ class MeshGateway():
             if gw_service is not None and gw_service_interface is not None:
                 gw_service_interface.BtmeshNewNodeInfo(dbus_msg)
 
+    def recv_sensor_model_status(self):        # publish message
+        msg = self.ser.ser.read(17)
+        unicast, temp, humid, illuminance, co2, presence, feedback, checksum = struct.unpack('<HffHHBBB')
+        if (sum(msg) + OPCODE_SENSOR_MODEL_STATUS & 0xFF) != 0xFF:
+            print('Wrong checksum')
+        else:
+            dbus_msg = {
+                'protocol': 'ble_mesh',
+                'unicast': unicast,
+                'data': {
+                    'temp': temp, 
+                    'hum': humid,      # this name should be assigned from device
+                    'light': illuminance,
+                    'co2': co2,
+                    'motion': presence,
+                    'feedback': feedback,
+                }
+            }
+            if gw_service is None or gw_service_interface is None:
+                dbus_call_proxy_object()
+            if gw_service is not None and gw_service_interface is not None:
+                gw_service_interface.SaveSensorData(dbus_msg)
+
     def recv_test_simple_msg(self):
         msg = self.ser.ser.read(2)
         status, checksum = struct.unpack('<BB', msg)
@@ -536,12 +574,14 @@ class BluetoothMeshService(dbus.service.Object):
             if gw_service is not None and gw_service_interface is not None:
                 gw_service_interface.BtmeshAddNodeAck(dbus_msg)
         else:
-            uuid = uuid_str_to_bytes(unprov_dev['uuid'])
-            mac = uuid_str_to_bytes(unprov_dev['mac'])
+            # uuid = unprov_dev['uuid']
+            # mac = unprov_dev['mac']
+            uuid = uuid_str_to_bytes(str(unprov_dev['uuid']))
+            mac = mac_str_to_bytes(str(unprov_dev['mac']))
             bearer = 1 if (unprov_dev['bearer_type'] == 'PB-ADV') else 2
-            add_device_cmd(uuid, mac, unprov_dev['addr_type'], unprov_dev['oob_info'], bearer)
+            add_device_cmd(uuid, mac, int(unprov_dev['address_type']), int(unprov_dev['oob_info']), bearer)
 
-    @dbus.service.method('org.ipac.btmesh', in_signature='', out_signature='')
+    @dbus.service.method('org.ipac.btmesh', in_signature='a{sv}', out_signature='')
     def BtmeshDeleteNode(self, dev_info):
         delete_node_cmd(dev_info['unicast'])
 
