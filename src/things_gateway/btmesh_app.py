@@ -33,11 +33,13 @@ OPCODE_BIND_MODEL_APP           = 0x09
 OPCODE_SET_MODEL_PUB            = 0x0A
 OPCODE_SET_MODEL_SUB            = 0x0B
 
-OPCODE_SCAN_RESULT = 0x40
-OPCODE_SEND_NEW_NODE_INFO = 0x41
+OPCODE_SCAN_RESULT              = 0x40
+OPCODE_SEND_NEW_NODE_INFO       = 0x41
 
-OPCODE_SENSOR_MODEL_GET         = 0x50
-OPCODE_SENSOR_MODEL_STATUS      = 0x51
+OPCODE_SENSOR_DATA_GET          = 0x50
+OPCODE_SENSOR_DATA_STATUS       = 0x51
+OPCODE_DEVICE_INFO_GET          = 0x80
+OPCODE_DEVICE_INFO_STATUS       = 0x81
 
 OPCODE_TEST_SIMPLE_MSG = 0xC4
 
@@ -141,7 +143,7 @@ def model_sub_set_cmd(unicast, group_addr, model_id, company_id):
     send_message_to_esp32(msg, '<BHHHHB')
 
 def sensor_model_get_cmd():
-    msg = [OPCODE_SENSOR_MODEL_GET]
+    msg = [OPCODE_SENSOR_DATA_GET]
     send_message_to_esp32(msg ,'<B')
 
 def test_simple_msg():
@@ -515,26 +517,47 @@ class MeshGateway():
 
     def recv_sensor_model_status(self):        # publish message
         msg = self.ser.ser.read(17)
-        unicast, temp, humid, illuminance, co2, presence, feedback, checksum = struct.unpack('<HffHHBBB')
-        if (sum(msg) + OPCODE_SENSOR_MODEL_STATUS & 0xFF) != 0xFF:
+        unicast, temp, humid, light, co2, motion, dust, battery, checksum = struct.unpack('<HffHHBfBB', msg)
+        if (sum(msg) + OPCODE_SENSOR_DATA_STATUS & 0xFF) != 0xFF:
             print('Wrong checksum')
         else:
             dbus_msg = {
                 'protocol': 'ble_mesh',
                 'unicast': unicast,
+                'battery': battery,
                 'data': {
                     'temp': temp, 
                     'hum': humid,      # this name should be assigned from device
-                    'light': illuminance,
+                    'light': light,
                     'co2': co2,
-                    'motion': presence,
-                    'feedback': feedback,
+                    'motion': motion,
+                    'dust': dust,
                 }
             }
             if gw_service is None or gw_service_interface is None:
                 dbus_call_proxy_object()
             if gw_service is not None and gw_service_interface is not None:
                 gw_service_interface.SaveSensorData(dbus_msg)
+
+    def recv_device_info_status(self):
+        msg = self.ser.ser.read(25)
+        unicast, device_name, function, tx_power, checksum = struct.unpack('<H20sBbB', msg)
+        if (sum(msg) + OPCODE_DEVICE_INFO_STATUS & 0xFF) != 0xFF:
+            print('Wrong checksum')
+        else:
+            dbus_msg = {
+                'protocol': 'ble_mesh',
+                'dev_info': {
+                    'unicast': unicast,
+                    'device_name': str(device_name, "utf-8"), 
+                    'function': function,      
+                    'tx_power': tx_power,
+                }
+            }
+            # if gw_service is None or gw_service_interface is None:
+            #     dbus_call_proxy_object()
+            # if gw_service is not None and gw_service_interface is not None:
+            #     gw_service_interface.SaveSensorData(dbus_msg)
 
     def recv_test_simple_msg(self):
         msg = self.ser.ser.read(2)
