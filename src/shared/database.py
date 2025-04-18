@@ -13,11 +13,16 @@ def createDatabase():
                                         protocol TEXT(10), 
                                         time INTEGER""")
 
-    db.createTable("BTMeshNodes", """   id INTEGER PRIMARY KEY AUTOINCREMENT
-                                        node_id INTEGER
-                                        uuid TEXT(40)
-                                        unicast INTEGER
-                                        mac TEXT(20)
+    db.createTable("NodeHealth", """    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                        node_id INTEGER,
+                                        battery INTEGER DEFAULT -1,
+                                        FOREIGN KEY (node_id) REFERENCES Registration (node_id) ON DELETE CASCADE ON UPDATE CASCADE""")
+
+    db.createTable("BTMeshNodes", """   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                        node_id INTEGER,
+                                        uuid TEXT(40),
+                                        unicast INTEGER,
+                                        mac TEXT(20),
                                         FOREIGN KEY (node_id) REFERENCES Registration (node_id) ON DELETE CASCADE ON UPDATE CASCADE""")
 
     db.createTable("SensorMonitor", """ id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,17 +81,17 @@ def createDatabaseSchedule():
         db.insertOneRecord(
             "Registration", ["node_id","function","sync_state","protocol","time"], item)
 
-def RecordMaker(data) -> dict:
+def RecordMaker(dict_data) -> dict:
     record = {
         "fields": None,
         "values": [],
     }
-    record['fields'] = list(my_dict.keys())
-    data = []
+    record['fields'] = list(dict_data.keys())
+    values = []
     for key in record['fields']:
-        data.append(data[key])
+        values.append(dict_data[key])
 
-    record['values'] = tuple(data)
+    record['values'] = tuple(values)
     return record
     
     

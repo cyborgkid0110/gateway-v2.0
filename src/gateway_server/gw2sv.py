@@ -324,6 +324,10 @@ class GatewayService(dbus.service.Object):
 
     @dbus.service.method('org.ipac.gateway', in_signature='a{sv}', out_signature='')
     def SaveSensorData(self, sensor_data):
+        if room_id is None:
+            print("Room ID is unknown.")
+            return
+
         if (sensor_data['protocol'] == 'ble_mesh'):
             db = SqliteDAO(database.location)
             data = sensor_data['data']
@@ -337,6 +341,9 @@ class GatewayService(dbus.service.Object):
                 db = SqliteDAO(database.location)
                 db.insertOneRecord("SensorMonitor", record['fields'], record['values'])
                 print(f"Inserted sensor data record: {record['fields']}, {record['values']}")
+                db = SqliteDAO(database.location)
+                db.insertOneRecord("NodeHealth", ['battery'], sensor_data['battery'])
+                print(f"Inserted battery data record: {sensor_data['battery']}")
 
 def update_node_id():
     global room_id
