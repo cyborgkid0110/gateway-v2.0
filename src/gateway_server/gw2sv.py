@@ -39,9 +39,10 @@ NEW_NODE_TOPIC = "farm/node/new"
 DELETE_NODE_TOPIC = "farm/node/delete"
 KEEPALIVE_ACK_TOPIC = "farm/monitor/alive"
 
-# BROKER_SERVER = '192.168.8.103'     # test broker
-# BROKER_SERVER = '192.168.2.199'     # test broker
-BROKER_SERVER = 'test.mosquitto.org'     # test broker
+BROKER_SERVER = '192.168.88.153'     # test broker
+# BROKER_SERVER = '192.168.8.101'     # test broker
+# BROKER_SERVER = '192.168.2.133'     # test broker
+# BROKER_SERVER = 'test.mosquitto.org'     # test broker
 PORT = 1883
 KEEPALIVE = 60
 
@@ -52,6 +53,8 @@ client = None       # MQTT client
 bus = None
 btmesh_service = None
 btmesh_interface = None
+
+global_state = 0
 
 def dbus_call_proxy_object():
     global btmesh_service
@@ -230,6 +233,7 @@ class GatewayService(dbus.service.Object):
         }
         pub_msg = json.dumps(msg)
         res = client.publish(SCAN_DEVICE_TOPIC, pub_msg)
+
         if (res[0] != 0):
             print('Cannot send new node info to server')
 

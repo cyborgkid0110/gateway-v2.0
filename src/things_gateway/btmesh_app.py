@@ -255,12 +255,6 @@ class MeshGateway():
     def recv_add_unprov_dev(self):
         msg = self.ser.ser.read(28)
         uuid, addr, addr_type, oob_info, bearer_type, status, checksum = struct.unpack('<16s6sBHBBB', msg)
-        print(uuid)
-        print(addr)
-        print(addr_type)
-        print(oob_info)
-        print(bearer_type)
-        print(status)
         if ((OPCODE_ADD_UNPROV_DEV + sum(msg)) & 0xFF) != 0xFF:
             print('Wrong checksum')
             # status = RESPONSE_BYTE_STATUS_FAILED
@@ -484,7 +478,7 @@ class MeshGateway():
         msg = self.ser.ser.read(24)
         node_idx, uuid, unicast, net_idx, elem_num, checksum = struct.unpack('<H16sHHBB', msg)
         if (sum(msg) + OPCODE_SEND_NEW_NODE_INFO & 0xFF) != 0xFF:
-            print('Wrong checksum')
+            print('Wrong checksum here')
         else:
             # {
             #     'function': (str),
