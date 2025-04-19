@@ -39,9 +39,9 @@ NEW_NODE_TOPIC = "farm/node/new"
 DELETE_NODE_TOPIC = "farm/node/delete"
 KEEPALIVE_ACK_TOPIC = "farm/monitor/alive"
 
-BROKER_SERVER = '192.168.88.153'     # test broker
+# BROKER_SERVER = '192.168.88.153'     # test broker
 # BROKER_SERVER = '192.168.8.101'     # test broker
-# BROKER_SERVER = '192.168.2.133'     # test broker
+BROKER_SERVER = '192.168.2.133'     # test broker
 # BROKER_SERVER = 'test.mosquitto.org'     # test broker
 PORT = 1883
 KEEPALIVE = 60
@@ -79,6 +79,7 @@ def mqtt_recv_scan_device(msg):
         if msg['operator'] == 'scan_device':
             if (msg['info']['protocol'] == 'ble_mesh'):
                 btmesh_interface.BtmeshScanDevice()
+                # btmesh_interface.BtmeshRemoteScanStart()
             elif (msg['info']['protocol'] == 'wifi'):
                 pass
 
@@ -126,6 +127,7 @@ def mqtt_recv_delete_node(msg):
         status = dbus_call_proxy_object()
         if status == False:
             return
+            
     if (msg['info']['room_id'] == room_id):
         if msg['operator'] == 'delete_node':
             if (msg['info']['protocol'] == 'ble_mesh'):

@@ -10,6 +10,7 @@ import dbus
 import dbus.service
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
+from src.shared import mesh_model
 
 INITIAL_STATE = 0
 IDLE_STATE = 1
@@ -32,9 +33,18 @@ OPCODE_ADD_APP_KEY              = 0x08
 OPCODE_BIND_MODEL_APP           = 0x09
 OPCODE_SET_MODEL_PUB            = 0x0A
 OPCODE_SET_MODEL_SUB            = 0x0B
+OPCODE_RPR_SCAN_GET             = 0x0C
+OPCODE_RPR_SCAN_START           = 0x0D
+OPCODE_RPR_SCAN_STOP            = 0x0E
+OPCODE_RPR_LINK_GET             = 0x0F
+OPCODE_RPR_LINK_OPEN            = 0x00
+OPCODE_RPR_LINK_CLOSED          = 0x11
+OPCODE_REMOTE_PROVISIONING      = 0x12
 
 OPCODE_SCAN_RESULT              = 0x40
 OPCODE_SEND_NEW_NODE_INFO       = 0x41
+OPCODE_RPR_SCAN_RESULT          = 0x42
+OPCODE_RPR_LINK_REPORT          = 0x43
 
 OPCODE_SENSOR_DATA_GET          = 0x50
 OPCODE_SENSOR_DATA_STATUS       = 0x51
@@ -141,6 +151,9 @@ def model_sub_set_cmd(unicast, group_addr, model_id, company_id):
                 + sum(struct.pack('<H', company_id))) & 0xFF
     msg = [OPCODE_SET_MODEL_SUB, unicast, group_addr, model_id, company_id, checksum]
     send_message_to_esp32(msg, '<BHHHHB')
+
+def remote_scan_start_cmd():
+    pass
 
 def sensor_model_get_cmd():
     msg = [OPCODE_SENSOR_DATA_GET]
@@ -352,17 +365,20 @@ class MeshGateway():
             
             sig_models = []
             vendor_models = []
+            # print(split_bytearray(modelS, 2))
             for sig_model in split_bytearray(modelS, 2):
-                sig_models.append(list(sig_model))
+                sig_model_hex = struct.unpack("<H", sig_model)
+                sig_models.append(sig_model_hex[0])
             for vendor_model in split_bytearray(modelV, 4):
-                vendor_models.append(list(vendor_model))
+                vendor_model_hex = struct.unpack("<HH", vendor_model)
+                vendor_models.append(list(vendor_model_hex))
             
             element = {}
             element['location'] = loc
             element['numS'] = numS
             element['numV'] = numV
-            element['sig_models'] = sig_models
-            element['vendor_models'] = vendor_models
+            element['sig_models'] = mesh_model.read_sig_models(sig_models)
+            element['vendor_models'] = mesh_model.read_vendor_models(vendor_models)
             comp_data['elements'].append(element)
 
             elements = rest_msg
@@ -370,7 +386,27 @@ class MeshGateway():
         print('-------------Composition Data Status-------------')
         print(f'Primary unicast: {unicast}')
         print(comp_data)
-        add_appkey_cmd(unicast)
+        # add_appkey_cmd(unicast)
+
+        for sig_model in comp_data['elements'][0]['sig_models']:
+            if (sig_model[0] == mesh_model.CONFIGURATION_CLIENT_MODEL) or (sig_model[0] == mesh_model.CONFIGURATION_SERVER_MODEL):
+                continue
+
+            if (sig_model[0] == mesh_model.REMOTE_PROVISIONING_SERVER_MODEL):
+                # enable Remote Provisioner Field
+                pass
+            
+            model_app_bind_cmd(unicast, sig_model[0], 0xFFFF)
+
+        for sig_model in comp_data['elements'][0]['vendor_models']:
+            if (sig_model[0] == mesh_model.CONFIGURATION_CLIENT_MODEL) or (sig_model[0] == mesh_model.CONFIGURATION_SERVER_MODEL):
+                continue
+
+            if (sig_model[0] == mesh_model.REMOTE_PROVISIONING_SERVER_MODEL):
+                # enable Remote Provisioner Field
+                pass
+            
+            model_app_bind_cmd(unicast, sig_model[0][1], sig_model[0][0])
 
     def recv_add_app_key_status(self):
         msg = self.ser.ser.read(4)
@@ -383,7 +419,7 @@ class MeshGateway():
         print('-----------------Add Appkey Status---------------')
         print(f'Unicast address: {hex(unicast)}')
         print(f'Status code: {hex(status)}')
-        model_app_bind_cmd(unicast, 0x1000, 0xFFFF)
+        get_composition_data_cmd(unicast)
 
     def recv_bind_model_status(self):
         msg = self.ser.ser.read(8)
@@ -396,7 +432,7 @@ class MeshGateway():
         print(f'Unicast address: {hex(ele_addr)}')
         print(f'Vendor Model ID: {hex(company_id)} {hex(model_id)}')
         print(f'Status code: {hex(status)}')
-        model_pub_set_cmd(ele_addr, 0xC000, 0x1000, 0xFFFF)
+        model_pub_set_cmd(ele_addr, 0xC000, model_id, company_id)
 
     def recv_model_pub_status(self):
         msg = self.ser.ser.read(10)
@@ -410,7 +446,12 @@ class MeshGateway():
         print(f'Group address: {hex(group_addr)}')
         print(f'Vendor Model ID: {hex(company_id)} {hex(model_id)}')
         print(f'Status code: {hex(status)}')
-        model_sub_set_cmd(ele_addr, 0xC000, 0x1000, 0xFFFF)
+        # server model should be always even
+        # client model should be odd
+        if model_id % 2 == 0:
+            model_sub_set_cmd(ele_addr, 0xC000, model_id + 1, company_id)
+        else:
+            model_sub_set_cmd(ele_addr, 0xC000, model_id - 1, company_id)
 
     def recv_model_sub_status(self):
         msg = self.ser.ser.read(10)
@@ -437,17 +478,6 @@ class MeshGateway():
         if ((sum(msg) + OPCODE_SCAN_RESULT) & 0xFF) != 0xFF:
             print('Wrong checksum')
         else:
-            # {
-            #     'uuid': , (str)
-            #     'mac': ,  (str)
-            #     'device_name': IPAC_LAB_SMART_FARM      # this name should be assigned from device
-            #     'address_type': int,
-            #     'oob_info': int,
-            #     'adv_type': (str),
-            #     'bearer_type': (str),
-            #     'rssi': int,
-            # }
-
             uuid_str = uuid.hex()
             addr_str = ":".join(f"{b:02X}" for b in addr)
             address_type = 'Public address' if (addr_type == 0x01) else 'Unicast address'
@@ -482,13 +512,6 @@ class MeshGateway():
         if (sum(msg) + OPCODE_SEND_NEW_NODE_INFO & 0xFF) != 0xFF:
             print('Wrong checksum here')
         else:
-            # {
-            #     'function': (str),
-            #     'uuid': (str),
-            #     'device_name': IPAC_LAB_SMART_FARM
-            #     'unicast': int,
-            # }
-
             uuid_str = uuid.hex()
             print('-------------------New node info-----------------')
             print(f'UUID: {uuid_str}')
@@ -497,7 +520,7 @@ class MeshGateway():
             print(f'NetKey id: {hex(net_idx)}')
             print(f'Element: {hex(elem_num)}')
 
-            get_composition_data_cmd(unicast)             # configuration node start here
+            add_appkey_cmd(unicast)                         # configuration node start here
             dbus_msg = {
                 'function': 'sensor',                      # get function from device
                 'uuid': uuid_str,
@@ -573,6 +596,10 @@ class BluetoothMeshService(dbus.service.Object):
     def BtmeshScanDevice(self):
         scan_device_cmd()
 
+    @dbus.service.method('org.ipac.btmesh', in_signature='', out_signature='')
+    def BtmeshRemoteScanStart(self):
+        remote_scan_start_cmd()
+
     @dbus.service.method('org.ipac.btmesh', in_signature='a{sv}', out_signature='')
     def BtmeshAddDevice(self, unprov_dev):
         if provision_pending == True:
@@ -591,8 +618,6 @@ class BluetoothMeshService(dbus.service.Object):
             if gw_service is not None and gw_service_interface is not None:
                 gw_service_interface.BtmeshAddNodeAck(dbus_msg)
         else:
-            # uuid = unprov_dev['uuid']
-            # mac = unprov_dev['mac']
             uuid = uuid_str_to_bytes(str(unprov_dev['uuid']))
             mac = mac_str_to_bytes(str(unprov_dev['mac']))
             bearer = 1 if (unprov_dev['bearer_type'] == 'PB-ADV') else 2

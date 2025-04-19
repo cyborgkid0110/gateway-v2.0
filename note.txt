@@ -1,0 +1,105 @@
+log:
+I (1049) EXAMPLE: ESP_BLE_MESH_PROVISIONER_SET_DEV_UUID_MATCH_COMP_EVT, err_code 0
+I (1069) EXAMPLE: ESP_BLE_MESH_PROVISIONER_PROV_ENABLE_COMP_EVT, err_code 0
+I (1069) EXAMPLE: ESP_BLE_MESH_PROVISIONER_ADD_LOCAL_APP_KEY_COMP_EVT, err_code 0
+I (1069) EXAMPLE: ESP_BLE_MESH_PROVISIONER_BIND_APP_KEY_TO_MODEL_COMP_EVT, err_code 0
+I (1079) EXAMPLE: BLE Mesh Provisioner initialized
+I (1079) main_task: Returned from app_main()
+I (4569) EXAMPLE: ESP_BLE_MESH_PROVISIONER_RECV_UNPROV_ADV_PKT_EVT
+I (4569) EXAMPLE: address: 10061c86b7b6, address type: 0, adv type: 3
+I (4569) EXAMPLE: device uuid: 55aa10061c86b7b60000000000000000
+I (4569) EXAMPLE: oob info: 0, bearer: PB-ADV
+I (4589) EXAMPLE: PB-ADV link open
+I (4589) EXAMPLE: ESP_BLE_MESH_PROVISIONER_ADD_UNPROV_DEV_COMP_EVT, err_code 0
+I (6949) EXAMPLE: node index: 0x0, unicast address: 0x05, element num: 3, netkey index: 0x00
+I (6949) EXAMPLE: device uuid: 55aa10061c86b7b60000000000000000
+I (6949) EXAMPLE: Provisioning node by common method
+I (6949) EXAMPLE: That node will be act as remote provisioning server to help Provisioner to provisioning another node
+I (6969) EXAMPLE: ESP_BLE_MESH_PROVISIONER_SET_NODE_NAME_COMP_EVT, err_code 0
+I (6969) EXAMPLE: Node 0 name is: NODE-0
+I (7279) EXAMPLE: PB-ADV link close, reason 0x00
+I (7499) EXAMPLE: example_ble_mesh_config_client_cb, error_code = 0x00, event = 0x00, addr: 0x0005, opcode: 0x8008
+I (7499) EXAMPLE: composition data e502000000000a00030000000300040000000010000001000010000001000010
+I (7509) EXAMPLE: ********************** Composition Data Start **********************
+I (7509) EXAMPLE: * CID 0x02e5, PID 0x0000, VID 0x0000, CRPL 0x000a, Features 0x0003 *
+I (7519) EXAMPLE: * Loc 0x0000, NumS 0x03, NumV 0x00 *
+I (7529) EXAMPLE: * SIG Model ID 0x0004 *
+I (7529) EXAMPLE: * SIG Model ID 0x0000 *
+I (7529) EXAMPLE: * SIG Model ID 0x1000 *
+I (7539) EXAMPLE: * Loc 0x0000, NumS 0x01, NumV 0x00 *
+I (7539) EXAMPLE: * SIG Model ID 0x1000 *
+I (7539) EXAMPLE: * Loc 0x0000, NumS 0x01, NumV 0x00 *
+I (7549) EXAMPLE: * SIG Model ID 0x1000 *
+I (7549) EXAMPLE: *********************** Composition Data End ***********************
+I (7849) EXAMPLE: example_ble_mesh_config_client_cb, error_code = 0x00, event = 0x01, addr: 0x0005, opcode: 0x0000
+I (7909) EXAMPLE: example_ble_mesh_config_client_cb, error_code = 0x00, event = 0x01, addr: 0x0005, opcode: 0x803d
+I (7909) EXAMPLE: The Remote Provisioning Server have been provisioned, You could click button to start remote provisioning
+
+W (7919) EXAMPLE: Remote Prov Client Send Comp, err_code 0
+W (8039) EXAMPLE: Remote Prov Client Recv RSP, opcode 0x8054, from 0x0005
+I (8039) EXAMPLE: scan_status, status 0x00
+I (8039) EXAMPLE: scan_status, rpr_scanning 0x00
+I (8039) EXAMPLE: scan_status, scan_items_limit 0x00
+I (8049) EXAMPLE: scan_status, timeout 0x00
+W (8059) EXAMPLE: Remote Prov Client Send Comp, err_code 0
+W (8129) EXAMPLE: Remote Prov Client Recv RSP, opcode 0x8054, from 0x0005
+I (8129) EXAMPLE: scan_status, status 0x00
+I (8129) EXAMPLE: scan_status, rpr_scanning 0x01
+I (8129) EXAMPLE: scan_status, scan_items_limit 0x0a
+I (8139) EXAMPLE: scan_status, timeout 0x0a
+I (8139) EXAMPLE: Start Remote Provisioning Server(addr: 0x0005) Scan Success
+W (12769) EXAMPLE: Remote Prov Client Recv RSP, opcode 0x8055, from 0x0005
+I (12769) EXAMPLE: scan_report, rssi -33dBm
+I (12769) EXAMPLE: scan_report, uuid: 55 55 10 06 1c 86 d6 2e 00 00 00 00 00 00 00 00
+I (12779) EXAMPLE: scan_report, oob_info 0x0000
+I (12789) EXAMPLE: scan_report, uri_hash 0x00000000
+W (12789) EXAMPLE: Remote Prov Client Send Comp, err_code 0
+W (12889) EXAMPLE: Remote Prov Client Recv RSP, opcode 0x805b, from 0x0005
+I (12889) EXAMPLE: link_status, status 0x00
+I (12889) EXAMPLE: link_status, rpr_state 0x00
+W (12899) EXAMPLE: Remote Prov Client Send Comp, err_code 0
+W (13269) EXAMPLE: Remote Prov Client Recv RSP, opcode 0x805b, from 0x0005
+I (13269) EXAMPLE: link_status, status 0x00
+I (13269) EXAMPLE: link_status, rpr_state 0x01
+I (13269) EXAMPLE: Remote Provisioning Server(addr: 0x0005) Recv Link Open Success
+W (13349) EXAMPLE: Remote Prov Client Recv RSP, opcode 0x805c, from 0x0005
+I (13349) EXAMPLE: link_report, status 0x00
+I (13349) EXAMPLE: link_report, rpr_state 0x02
+I (13359) EXAMPLE: Remote Provisioning Server(addr: 0x0005) Link Open Success
+W (13369) EXAMPLE: Remote Prov Client Act Comp, sub_evt 0x00
+I (13369) EXAMPLE: Start Remote Prov Comp, err_code 0, rpr_srv_addr 0x0005
+W (19479) EXAMPLE: Remote Prov Client Prov Complete
+I (19479) EXAMPLE: Net Idx: 0x0000
+I (19479) EXAMPLE: Node addr: 0x0008
+I (19479) EXAMPLE: Node element num: 0x0003
+I (19479) EXAMPLE: Node UUID: : 55 55 10 06 1c 86 d6 2e 00 00 00 00 00 00 00 00
+I (19489) EXAMPLE: node index: 0x0, unicast address: 0x08, element num: 3, netkey index: 0x00
+I (19499) EXAMPLE: device uuid: 555510061c86d62e0000000000000000
+I (19499) EXAMPLE: Provisioning node by common method
+I (19509) EXAMPLE: That node will be act as remote provisioning server to help Provisioner to provisioning another node
+W (19519) EXAMPLE: Remote Prov Client Link Close
+W (19529) BLE_MESH: Node name "NODE-0" already exists
+W (19529) EXAMPLE: Remote Prov Client Send Comp, err_code 0
+I (19529) EXAMPLE: ESP_BLE_MESH_PROVISIONER_SET_NODE_NAME_COMP_EVT, err_code -17
+W (19789) EXAMPLE: Remote Prov Client Recv RSP, opcode 0x805b, from 0x0005
+I (19789) EXAMPLE: link_status, status 0x00
+I (19789) EXAMPLE: link_status, rpr_state 0x04
+I (19789) EXAMPLE: Remote Provisioning Server(addr: 0x0005) Recv Link Close Success
+W (19819) EXAMPLE: Remote Prov Client Recv RSP, opcode 0x805c, from 0x0005
+I (19819) EXAMPLE: link_report, status 0x08
+I (19819) EXAMPLE: link_report, rpr_state 0x00
+I (20069) EXAMPLE: example_ble_mesh_config_client_cb, error_code = 0x00, event = 0x00, addr: 0x0008, opcode: 0x8008
+I (20069) EXAMPLE: composition data e502000000000a0003000000020000000010000001000010000001000010
+I (20079) EXAMPLE: ********************** Composition Data Start **********************
+I (20089) EXAMPLE: * CID 0x02e5, PID 0x0000, VID 0x0000, CRPL 0x000a, Features 0x0003 *
+I (20099) EXAMPLE: * Loc 0x0000, NumS 0x02, NumV 0x00 *
+I (20099) EXAMPLE: * SIG Model ID 0x0000 *
+I (20109) EXAMPLE: * SIG Model ID 0x1000 *
+I (20109) EXAMPLE: * Loc 0x0000, NumS 0x01, NumV 0x00 *
+I (20119) EXAMPLE: * SIG Model ID 0x1000 *
+I (20119) EXAMPLE: * Loc 0x0000, NumS 0x01, NumV 0x00 *
+I (20119) EXAMPLE: * SIG Model ID 0x1000 *
+I (20129) EXAMPLE: *********************** Composition Data End ***********************
+I (20499) EXAMPLE: example_ble_mesh_config_client_cb, error_code = 0x00, event = 0x01, addr: 0x0008, opcode: 0x0000
+I (20619) EXAMPLE: example_ble_mesh_config_client_cb, error_code = 0x00, event = 0x01, addr: 0x0008, opcode: 0x803d
+I (20629) EXAMPLE: The last node have been provisioned, You could click button to send Generic Onoff Set
