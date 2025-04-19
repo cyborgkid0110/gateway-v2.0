@@ -10,7 +10,7 @@ import dbus
 import dbus.service
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
-from src.shared import mesh_model
+from src.shared import mesh_model, mesh_codes
 
 INITIAL_STATE = 0
 IDLE_STATE = 1
@@ -38,7 +38,7 @@ OPCODE_RPR_SCAN_START           = 0x0D
 OPCODE_RPR_SCAN_STOP            = 0x0E
 OPCODE_RPR_LINK_GET             = 0x0F
 OPCODE_RPR_LINK_OPEN            = 0x00
-OPCODE_RPR_LINK_CLOSED          = 0x11
+OPCODE_RPR_LINK_CLOSE           = 0x11
 OPCODE_REMOTE_PROVISIONING      = 0x12
 
 OPCODE_SCAN_RESULT              = 0x40
@@ -59,6 +59,11 @@ RESPONSE_BYTE_STATUS_FAILED = 0x02
 
 ser = None                      # serial COM
 provision_pending = 0
+
+remote_unprov_dev_dict = {}
+# {
+#     'unicast': uuid_dev,...
+# }
 
 bus = None
 gw_service = None               # Gateway Service D-Bus Object
@@ -152,8 +157,42 @@ def model_sub_set_cmd(unicast, group_addr, model_id, company_id):
     msg = [OPCODE_SET_MODEL_SUB, unicast, group_addr, model_id, company_id, checksum]
     send_message_to_esp32(msg, '<BHHHHB')
 
-def remote_scan_start_cmd():
-    pass
+def rpr_scan_get_cmd(remote_addr):
+    checksum = ~(OPCODE_RPR_SCAN_GET + sum(struct.pack('<H', remote_addr))) & 0xFF
+    msg = [OPCODE_RPR_SCAN_GET, remote_addr, checksum]
+    send_message_to_esp32(msg, '<BHB')
+
+def rpr_scan_start_cmd(remote_addr):
+    checksum = ~(OPCODE_RPR_SCAN_START + sum(struct.pack('<H', remote_addr))) & 0xFF
+    msg = [OPCODE_RPR_SCAN_START, remote_addr, checksum]
+    send_message_to_esp32(msg, '<BHB')
+
+def rpr_scan_stop_cmd(remote_addr):
+    checksum = ~(OPCODE_RPR_SCAN_STOP + sum(struct.pack('<H', remote_addr))) & 0xFF
+    msg = [OPCODE_RPR_SCAN_STOP, remote_addr, checksum]
+    send_message_to_esp32(msg, '<BHB')
+
+def rpr_link_get_cmd(remote_addr, uuid_dev):
+    checksum = ~(OPCODE_RPR_LINK_GET + sum(struct.pack('<H', remote_addr))) & 0xFF
+    msg = [OPCODE_RPR_LINK_GET, remote_addr, checksum]
+    send_message_to_esp32(msg, '<BHB')
+
+def rpr_link_open_cmd(remote_addr):
+    uuid = remote_unprov_dev_dict[remote_addr]
+    checksum = ~(OPCODE_RPR_LINK_OPEN + sum(struct.pack('<H', remote_addr)) + sum(uuid)) & 0xFF
+    msg = [OPCODE_RPR_LINK_OPEN, remote_addr, uuid, checksum]
+    send_message_to_esp32(msg, '<BH16sB')
+
+def rpr_link_close_cmd(remote_addr):
+    reason = mesh_codes.REMOTE_PROVISIONING_LINK_CLOSE_REASON_SUCCESS
+    checksum = ~(OPCODE_RPR_LINK_CLOSE + reason + sum(struct.pack('<H', remote_addr))) & 0xFF
+    msg = [OPCODE_RPR_LINK_CLOSE, remote_addr, reason, checksum]
+    send_message_to_esp32(msg, '<BHBB')
+
+def remote_provisioning_cmd(remote_addr):
+    checksum = ~(OPCODE_REMOTE_PROVISIONING + sum(struct.pack('<H', remote_addr))) & 0xFF
+    msg = [OPCODE_REMOTE_PROVISIONING, remote_addr, checksum]
+    send_message_to_esp32(msg, '<BHB')
 
 def sensor_model_get_cmd():
     msg = [OPCODE_SENSOR_DATA_GET]
@@ -220,11 +259,32 @@ class MeshGateway():
             self.recv_model_pub_status()
         elif (opcode == OPCODE_SET_MODEL_SUB):
             self.recv_model_sub_status()
+        elif (opcode == OPCODE_RPR_SCAN_GET):
+            self.recv_rpr_scan_get()
+        elif (opcode == OPCODE_RPR_SCAN_START):
+            self.recv_rpr_scan_start()
+        elif (opcode == OPCODE_RPR_SCAN_STOP):
+            self.recv_rpr_scan_stop()
+        elif (opcode == OPCODE_RPR_LINK_GET):
+            self.recv_rpr_link_get()
+        elif (opcode == OPCODE_RPR_LINK_OPEN):
+            self.recv_rpr_link_open()
+        elif (opcode == OPCODE_RPR_LINK_CLOSE):
+            self.recv_rpr_link_close()
+        elif (opcode == OPCODE_REMOTE_PROVISIONING):
+            self.recv_remote_prov_ack()
+
         # command from esp32
         elif (opcode == OPCODE_SCAN_RESULT):
             self.recv_scan_result()
         elif (opcode == OPCODE_SEND_NEW_NODE_INFO):
             self.recv_new_node_info()
+
+        # custom model commands
+        elif (opcode == OPCODE_DEVICE_INFO_STATUS):
+            self.recv_device_info_status()
+        elif (opcode == OPCODE_SENSOR_DATA_STATUS):
+            self.recv_sensor_data_status()
     
     def recv_get_local_keys(self):
         msg = self.ser.ser.read(34)
@@ -282,14 +342,16 @@ class MeshGateway():
         addr_str = ":".join(f"{b:02X}" for b in addr)
 
         dbus_msg = {
+            'remote': False,
+            'remote_addr': 0x0000,
             'uuid': uuid_str,
             'device_name': 'IPAC_LAB_SMART_FARM',
             'mac': addr_str,
             'address_type': addr_type,
             'oob_info': 0,
             'adv_type': 1,           # currently not synchronized
-            'status': (1 if status == RESPONSE_BYTE_STATUS_OK else 1),
-            'bearer_type': ('PB-ADV' if bearer_type == 1 else 'PB-GATT'),
+            'status': (1 if status == RESPONSE_BYTE_STATUS_OK else 0),
+            'bearer_type': ('PB-ADV' if bearer_type == mesh_codes.PB_ADV else 'PB-GATT'),
         }
 
         if gw_service is None or gw_service_interface is None:
@@ -469,46 +531,216 @@ class MeshGateway():
         print('------------Node Configuration Status------------')
         print(f'Node {ele_addr} configured successfully')
 
+    def recv_rpr_scan_get(self):
+        msg = self.ser.ser.read(7)
+        unicast, status, rpr_scanning, scan_items_limit, timeout, checksum = struct.unpack("<HBBBBB", msg)
+        if ((sum(msg) + OPCODE_RPR_SCAN_GET) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+    
+    def recv_rpr_scan_start(self):
+        msg = self.ser.ser.read(7)
+        unicast, status, rpr_scanning, scan_items_limit, timeout, checksum = struct.unpack("<HBBBBB", msg)
+        if ((sum(msg) + OPCODE_RPR_SCAN_START) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+        
+        # assume only feedback scan status with error only
+        if status != mesh_codes.REMOTE_PROVISIONER_STATUS_SUCCESS:
+            scan_status = False
+            if gw_service is None or gw_service_interface is None:
+                dbus_call_proxy_object()
+            if gw_service is not None and gw_service_interface is not None:
+                gw_service_interface.BtmeshRemoteScanDeviceAck(scan_status, unicast)
+        
+        print('---------------Remote Scan Status----------------')
+        print(f'Node {unicast} start remote scan with status {status}')
+
+    def recv_rpr_scan_stop(self):
+        msg = self.ser.ser.read(7)
+        unicast, status, rpr_scanning, scan_items_limit, timeout, checksum = struct.unpack("<HBBBBB", msg)
+        if ((sum(msg) + OPCODE_RPR_SCAN_STOP) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
+    def recv_rpr_link_get(self):
+        msg = self.ser.ser.read(5)
+        remote_addr, status, rpr_state, checksum = struct.unpack("<HBBB", msg)
+        if ((sum(msg) + OPCODE_RPR_LINK_GET) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+        
+        if status == mesh_codes.REMOTE_PROVISIONER_STATUS_SUCCESS and rpr_state == mesh_codes.REMOTE_PROVISIONING_LINK_STATE_IDLE:
+            rpr_link_open_cmd(remote_addr)
+        else:
+            dbus_msg = {
+                'remote': True,
+                'remote_addr': remote_addr,
+                'uuid': remote_unprov_dev_dict[remote_addr]['uuid'],
+                'device_name': remote_unprov_dev_dict[remote_addr]['device_name'],
+                'mac': remote_unprov_dev_dict[remote_addr]['mac'],
+                'address_type': remote_unprov_dev_dict[remote_addr]['address_type'],
+                'oob_info': remote_unprov_dev_dict[remote_addr]['oob_info'],
+                'adv_type': remote_unprov_dev_dict[remote_addr]['adv_type'],
+                'status': 0,
+                'bearer_type': remote_unprov_dev_dict[remote_addr]['bearer_type'],
+            }
+
+            if gw_service is None or gw_service_interface is None:
+                dbus_call_proxy_object()
+            if gw_service is not None and gw_service_interface is not None:
+                gw_service_interface.BtmeshAddNodeAck(dbus_msg)
+        
+        print('-------------Remote Link Get Status--------------')
+        print(f'Remote address: {remote_addr}')
+        print(f'Status: {status}')
+        print(f'Remote Provisioning Link state value: {rpr_state}')
+
+    def recv_rpr_link_open(self):
+        msg = self.ser.ser.read(5)
+        remote_addr, status, rpr_state, checksum = struct.unpack("<HBBB", msg)
+        if ((sum(msg) + OPCODE_RPR_LINK_OPEN) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
+        if status != mesh_codes.REMOTE_PROVISIONER_STATUS_SUCCESS or rpr_state != mesh_codes.REMOTE_PROVISIONING_LINK_STATE_LINK_OPENING:
+            dbus_msg = {
+                'remote': True,
+                'remote_addr': remote_addr,
+                'uuid': remote_unprov_dev_dict[remote_addr]['uuid'],
+                'device_name': remote_unprov_dev_dict[remote_addr]['device_name'],
+                'mac': remote_unprov_dev_dict[remote_addr]['mac'],
+                'address_type': remote_unprov_dev_dict[remote_addr]['address_type'],
+                'oob_info': remote_unprov_dev_dict[remote_addr]['oob_info'],
+                'adv_type': remote_unprov_dev_dict[remote_addr]['adv_type'],
+                'status': 0,
+                'bearer_type': remote_unprov_dev_dict[remote_addr]['bearer_type'],
+            }
+
+            if gw_service is None or gw_service_interface is None:
+                dbus_call_proxy_object()
+            if gw_service is not None and gw_service_interface is not None:
+                gw_service_interface.BtmeshAddNodeAck(dbus_msg)
+        
+        print('-------------Remote Link Open Status-------------')
+        print(f'Remote address: {remote_addr}')
+        print(f'Status: {status}')
+        print(f'Remote Provisioning Link state value: {rpr_state}')
+
+    def recv_rpr_link_close(self):
+        msg = self.ser.ser.read(5)
+        remote_addr, status, rpr_state, checksum = struct.unpack("<HBBB", msg)
+        if ((sum(msg) + OPCODE_RPR_LINK_CLOSE) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
+        if status != mesh_codes.REMOTE_PROVISIONER_STATUS_SUCCESS or rpr_state != mesh_codes.REMOTE_PROVISIONING_LINK_STATE_LINK_CLOSING:
+            dbus_msg = {
+                'remote': True,
+                'remote_addr': remote_addr,
+                'uuid': remote_unprov_dev_dict[remote_addr]['uuid'],
+                'device_name': remote_unprov_dev_dict[remote_addr]['device_name'],
+                'mac': remote_unprov_dev_dict[remote_addr]['mac'],
+                'address_type': remote_unprov_dev_dict[remote_addr]['address_type'],
+                'oob_info': remote_unprov_dev_dict[remote_addr]['oob_info'],
+                'adv_type': remote_unprov_dev_dict[remote_addr]['adv_type'],
+                'status': 0,
+                'bearer_type': remote_unprov_dev_dict[remote_addr]['bearer_type'],
+            }
+
+            if gw_service is None or gw_service_interface is None:
+                dbus_call_proxy_object()
+            if gw_service is not None and gw_service_interface is not None:
+                gw_service_interface.BtmeshAddNodeAck(dbus_msg)
+        
+        print('-------------Remote Link Open Status-------------')
+        print(f'Remote address: {remote_addr}')
+        print(f'Status: {status}')
+        print(f'Remote Provisioning Link state value: {rpr_state}')
+
+    def recv_rpr_link_report(self):
+        msg = self.ser.ser.read(7)
+        unicast, status, rpr_state, reason_en, reason, checksum = struct.unpack("<HBBBBB", msg)
+        if ((sum(msg) + OPCODE_RPR_LINK_REPORT) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
+        if status == mesh_codes.REMOTE_PROVISIONER_STATUS_SUCCESS and rpr_state == mesh_codes.REMOTE_PROVISIONING_LINK_STATE_LINK_ACTIVE:
+            remote_provisioning_cmd(unicast)
+
+    def recv_remote_prov_ack():
+        msg = self.ser.ser.read(3)
+        status, remote_addr, checksum = struct.unpack("<BHB", msg)
+        if ((sum(msg) + OPCODE_REMOTE_PROVISIONING) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
+        if status == RESPONSE_BYTE_STATUS_FAILED:
+            print(f"Start remote provisioning at node {remote_addr} failed")
+        else:
+            print(f"Start remote provisioning at node {remote_addr}")
+
+        dbus_msg = {
+            'remote': True,
+            'remote_addr': remote_addr,
+            'uuid': remote_unprov_dev_dict[remote_addr]['uuid'],
+            'device_name': remote_unprov_dev_dict[remote_addr]['device_name'],
+            'mac': remote_unprov_dev_dict[remote_addr]['mac'],
+            'address_type': remote_unprov_dev_dict[remote_addr]['address_type'],
+            'oob_info': remote_unprov_dev_dict[remote_addr]['oob_info'],
+            'adv_type': remote_unprov_dev_dict[remote_addr]['adv_type'],
+            'status': 1,
+            'bearer_type': remote_unprov_dev_dict[remote_addr]['bearer_type'],
+        }
+
+        if gw_service is None or gw_service_interface is None:
+            dbus_call_proxy_object()
+        if gw_service is not None and gw_service_interface is not None:
+            gw_service_interface.BtmeshAddNodeAck(dbus_msg)
+
     def recv_scan_result(self):
-        msg = self.ser.ser.read(29)
-        uuid, addr, addr_type, oob_info, adv_type, bearer, rssi, checksum = struct.unpack('<16s6sBHBBbB', msg)
+        msg = self.ser.ser.read(49)
+        device_name, uuid, addr, addr_type, oob_info, adv_type, bearer, rssi, checksum = struct.unpack('<20s16s6sBHBBbB', msg)
         if (bearer == 2):           # (optional) we don't accept 'PB-GATT' 
             return
 
         if ((sum(msg) + OPCODE_SCAN_RESULT) & 0xFF) != 0xFF:
             print('Wrong checksum')
-        else:
-            uuid_str = uuid.hex()
-            addr_str = ":".join(f"{b:02X}" for b in addr)
-            address_type = 'Public address' if (addr_type == 0x01) else 'Unicast address'
-            bearer_type = 'PB-ADV' if (bearer == 0x01) else 'PB-GATT'
-            print('-------------------Scan result-----------------')
-            print(f'UUID: {uuid_str}')
-            print(f'Mac address: {addr_str}')
-            print(f'Address type: {addr_type} {address_type}')
-            print(f'OOB info: {oob_info}')
-            print(f'ADV type: {adv_type}')
-            print(f'Bearer type: {bearer} {bearer_type}')
-            print(f'RSSI: {rssi}')
+            return
+            
+        uuid_str = uuid.hex()
+        device_name_str = device_name.decode('utf-8')
+        addr_str = ":".join(f"{b:02X}" for b in addr)
+        address_type = 'Public address' if (addr_type == 0x00) else 'Random address'
+        bearer_type = 'PB-ADV' if (bearer == mesh_codes.PB_ADV) else 'PB-GATT'
+        print('-------------------Scan result-----------------')
+        print(f'Device name: {device_name_str}')
+        print(f'UUID: {uuid_str}')
+        print(f'Mac address: {addr_str}')
+        print(f'Address type: {addr_type} {address_type}')
+        print(f'OOB info: {oob_info}')
+        print(f'ADV type: {adv_type}')
+        print(f'Bearer type: {bearer} {bearer_type}')
+        print(f'RSSI: {rssi}')
 
-            dbus_msg = {
-                'uuid': uuid_str,
-                'mac': addr_str, 
-                'device_name': 'IPAC_LAB_SMART_FARM',      # this name should be assigned from device
-                'address_type': addr_type,
-                'oob_info': oob_info,
-                'adv_type': adv_type,
-                'bearer_type': bearer_type,
-                'rssi': rssi,
-            }
-            if gw_service is None or gw_service_interface is None:
-                dbus_call_proxy_object()
-            if gw_service is not None and gw_service_interface is not None:
-                gw_service_interface.BtmeshScanResult(dbus_msg)
+        dbus_msg = {
+            'uuid': uuid_str,
+            'mac': addr_str, 
+            'device_name': device_name_str,      # this name should be assigned from device
+            'address_type': addr_type,
+            'oob_info': oob_info,
+            'adv_type': adv_type,
+            'bearer_type': bearer_type,
+            'rssi': rssi,
+        }
+        if gw_service is None or gw_service_interface is None:
+            dbus_call_proxy_object()
+        if gw_service is not None and gw_service_interface is not None:
+            gw_service_interface.BtmeshScanResult(dbus_msg)
 
     def recv_new_node_info(self):
-        msg = self.ser.ser.read(24)
-        node_idx, uuid, unicast, net_idx, elem_num, checksum = struct.unpack('<H16sHHBB', msg)
+        msg = self.ser.ser.read(25)
+        remote, uuid, unicast, rpr_srv_addr, net_idx, elem_num, checksum = struct.unpack('<B16sHHHBB', msg)
         if (sum(msg) + OPCODE_SEND_NEW_NODE_INFO & 0xFF) != 0xFF:
             print('Wrong checksum here')
         else:
@@ -532,8 +764,41 @@ class MeshGateway():
             if gw_service is not None and gw_service_interface is not None:
                 gw_service_interface.BtmeshNewNodeInfo(dbus_msg)
 
-    def recv_sensor_model_status(self):        # publish message
-        msg = self.ser.ser.read(17)
+    def recv_rpr_scan_report(self):
+        msg = self.ser.ser.read(30)
+        unicast, rssi, uuid, oob_info, uri_hash, checksum = struct.unpack('<Hb16sHIB', msg)
+        if (sum(msg) + OPCODE_RPR_SCAN_RESULT & 0xFF) != 0xFF:
+            print('Wrong checksum here')
+            return
+
+        uuid_str = uuid.hex()
+        print('-------------------Scan result-----------------')
+        print(f'Device name: {device_name_str}')
+        print(f'UUID: {uuid_str}')
+        print(f'Mac address: {addr_str}')
+        print(f'Address type: {addr_type} {address_type}')
+        print(f'OOB info: {oob_info}')
+        print(f'RSSI: {rssi}')
+
+        dbus_msg = {
+            'remote': False,
+            'remote_addr': 0x0000,
+            'uuid': uuid_str,
+            'mac': addr_str, 
+            'device_name': "IPAC_LAB_SMART_FARM",      # this name should be assigned from device
+            'address_type': addr_type,
+            'oob_info': oob_info,
+            'adv_type': adv_type,
+            'bearer_type': bearer_type,
+            'rssi': rssi,
+        }
+        if gw_service is None or gw_service_interface is None:
+            dbus_call_proxy_object()
+        if gw_service is not None and gw_service_interface is not None:
+            gw_service_interface.BtmeshScanResult(dbus_msg)
+
+    def recv_sensor_data_status(self):        # publish message
+        msg = self.ser.ser.read(21)
         unicast, temp, humid, light, co2, motion, dust, battery, checksum = struct.unpack('<HffHHBfBB', msg)
         if (sum(msg) + OPCODE_SENSOR_DATA_STATUS & 0xFF) != 0xFF:
             print('Wrong checksum')
@@ -596,14 +861,17 @@ class BluetoothMeshService(dbus.service.Object):
     def BtmeshScanDevice(self):
         scan_device_cmd()
 
-    @dbus.service.method('org.ipac.btmesh', in_signature='', out_signature='')
-    def BtmeshRemoteScanStart(self):
-        remote_scan_start_cmd()
+    @dbus.service.method('org.ipac.btmesh', in_signature='aq', out_signature='')
+    def BtmeshRemoteScanStartAll(self, unicast_list):
+        for unicast in unicast_list:
+            rpr_scan_start_cmd(unicast)
 
     @dbus.service.method('org.ipac.btmesh', in_signature='a{sv}', out_signature='')
     def BtmeshAddDevice(self, unprov_dev):
         if provision_pending == True:
             dbus_msg = {
+                'remote': False,
+                'remote_addr': 0x0000,
                 'uuid': unprov_dev['uuid'],
                 'device_name': unprov_dev['device_name'],
                 'mac': unprov_dev['mac'],
@@ -620,8 +888,42 @@ class BluetoothMeshService(dbus.service.Object):
         else:
             uuid = uuid_str_to_bytes(str(unprov_dev['uuid']))
             mac = mac_str_to_bytes(str(unprov_dev['mac']))
-            bearer = 1 if (unprov_dev['bearer_type'] == 'PB-ADV') else 2
+            bearer = mesh_codes.PB_ADV if (unprov_dev['bearer_type'] == 'PB-ADV') else mesh_codes.PB_GATT
             add_device_cmd(uuid, mac, int(unprov_dev['address_type']), int(unprov_dev['oob_info']), bearer)
+
+    @dbus.service.method('org.ipac.btmesh', in_signature='qa{sv}', out_signature='')
+    def BtmeshRemoteAddDevice(self, remote_addr, unprov_dev):
+        unicasts = list(remote_unprov_dev_dict.keys())
+        if remote_addr in unicasts:
+            dbus_msg = {
+                'remote': True,
+                'remote_addr': remote_addr,
+                'uuid': unprov_dev['uuid'],
+                'device_name': unprov_dev['device_name'],
+                'mac': unprov_dev['mac'],
+                'address_type': unprov_dev['address_type'],
+                'oob_info': unprov_dev['oob_info'],
+                'adv_type': unprov_dev['adv_type'],
+                'status': 0,
+                'bearer_type': unprov_dev['bearer_type'],
+            }
+
+            if gw_service is None or gw_service_interface is None:
+                dbus_call_proxy_object()
+            if gw_service is not None and gw_service_interface is not None:
+                gw_service_interface.BtmeshAddNodeAck(dbus_msg)
+        else:
+            remote_unprov_dev_dict[remote_addr] = {
+                'uuid': unprov_dev['uuid'],
+                'device_name': unprov_dev['device_name'],
+                'mac': unprov_dev['mac'],
+                'address_type': unprov_dev['address_type'],
+                'oob_info': unprov_dev['oob_info'],
+                'adv_type': unprov_dev['adv_type'],
+                'bearer_type': unprov_dev['bearer_type'],
+            }
+            uuid_dev = uuid_str_to_bytes(str(unprov_dev['uuid']))
+            rpr_link_get_cmd(remote_addr, uuid_dev)
 
     @dbus.service.method('org.ipac.btmesh', in_signature='a{sv}', out_signature='')
     def BtmeshDeleteNode(self, dev_info):

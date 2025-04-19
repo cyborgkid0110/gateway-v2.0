@@ -23,6 +23,7 @@ def createDatabase():
                                         uuid TEXT(40),
                                         unicast INTEGER,
                                         mac TEXT(20),
+                                        remote BOOLEAN DEFAULT 0,
                                         FOREIGN KEY (node_id) REFERENCES Registration (node_id) ON DELETE CASCADE ON UPDATE CASCADE""")
 
     db.createTable("SensorMonitor", """ id INTEGER PRIMARY KEY AUTOINCREMENT,

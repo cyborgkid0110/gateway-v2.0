@@ -54,8 +54,6 @@ bus = None
 btmesh_service = None
 btmesh_interface = None
 
-global_state = 0
-
 def dbus_call_proxy_object():
     global btmesh_service
     global btmesh_interface
@@ -79,7 +77,13 @@ def mqtt_recv_scan_device(msg):
         if msg['operator'] == 'scan_device':
             if (msg['info']['protocol'] == 'ble_mesh'):
                 btmesh_interface.BtmeshScanDevice()
-                # btmesh_interface.BtmeshRemoteScanStart()
+                db = SqliteDAO(database.location)
+                unicasts = db.__do__(f"SELECT unicast FROM BTMeshNodes WHERE remote = 1")
+                # result of db.__do__ is [(record1,..), (record2,..)]
+                unicast_list = []
+                for addr in unicasts:
+                    unicast_list.append(addr[0])
+                btmesh_interface.BtmeshRemoteScanStartAll(unicast_list)
             elif (msg['info']['protocol'] == 'wifi'):
                 pass
 
@@ -92,8 +96,10 @@ def mqtt_recv_add_device(msg):
     if (msg['info']['room_id'] == room_id):
         if msg['operator'] == 'add_node':
             if (msg['info']['protocol'] == 'ble_mesh'):
-                dev_info = msg['info']['dev_info']
-                btmesh_interface.BtmeshAddDevice(msg['info']['dev_info'])
+                if (msg['info']['remote_prov']['enable'] == True):
+                    btmesh_interface.BtmeshRemoteAddDevice(msg['info']['remote_prov']['unicast'], msg['info']['dev_info'])
+                else:
+                    btmesh_interface.BtmeshAddDevice(msg['info']['dev_info'])
             elif (msg['info']['protocol'] == 'wifi'):
                 pass
 
@@ -209,6 +215,26 @@ class GatewayService(dbus.service.Object):
         if (res[0] != 0):
             print('Cannot send new node info to server')
 
+    @dbus.service.method('org.ipac.gateway', in_signature='bq', out_signature='')
+    def BtmeshRemoteScanDeviceAck(self, scan_status, unicast):
+        if room_id is None:
+            print("Room ID is unknown.")
+            return
+
+        msg = {
+            'operator': 'remote_scan_device_ack',
+            'status': (1 if (scan_status == True) else 0),
+            'info': {
+                'room_id': room_id,
+                'protocol': 'ble_mesh',
+                'remote_addr': unicast,
+            }
+        }
+        pub_msg = json.dumps(msg)
+        res = client.publish(SCAN_DEVICE_TOPIC, pub_msg)
+        if (res[0] != 0):
+            print('Cannot send new node info to server')
+
     @dbus.service.method('org.ipac.gateway', in_signature='a{sv}', out_signature='')
     def BtmeshScanResult(self, scan_result):
         if room_id is None:
@@ -221,6 +247,10 @@ class GatewayService(dbus.service.Object):
             'info': {
                 'room_id': room_id,
                 'protocol': 'ble_mesh',
+                'remote_prov': {
+                    'enable': scan_result['remote'],
+                    'unicast': scan_result['remote_addr'],
+                },
                 'dev_info': {
                     'uuid': scan_result['uuid'],
                     'device_name': scan_result['device_name'],   # this name should be assigned from device
@@ -276,6 +306,10 @@ class GatewayService(dbus.service.Object):
             'info': {
                 'room_id': room_id,
                 'protocol': 'ble_mesh',
+                'remote_prov': {
+                    'enable': add_node_ack['remote'],
+                    'unicast': add_node_ack['remote_addr'],
+                },
                 'dev_info': {
                     'uuid': add_node_ack['uuid'],
                     'device_name': add_node_ack['device_name'],   # this name should be assigned from device
