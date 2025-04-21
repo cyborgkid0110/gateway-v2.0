@@ -39,9 +39,9 @@ NEW_NODE_TOPIC = "farm/node/new"
 DELETE_NODE_TOPIC = "farm/node/delete"
 KEEPALIVE_ACK_TOPIC = "farm/monitor/alive"
 
-# BROKER_SERVER = '192.168.88.153'     # test broker
+BROKER_SERVER = '192.168.88.153'     # test broker
 # BROKER_SERVER = '192.168.8.101'     # test broker
-BROKER_SERVER = '192.168.2.133'     # test broker
+# BROKER_SERVER = '192.168.2.81'     # test broker
 # BROKER_SERVER = 'test.mosquitto.org'     # test broker
 PORT = 1883
 KEEPALIVE = 60
@@ -81,6 +81,8 @@ def mqtt_recv_scan_device(msg):
                 unicasts = db.__do__(f"SELECT unicast FROM BTMeshNodes WHERE remote = 1")
                 # result of db.__do__ is [(record1,..), (record2,..)]
                 unicast_list = []
+                if unicasts is None:
+                    return
                 for addr in unicasts:
                     unicast_list.append(addr[0])
                 btmesh_interface.BtmeshRemoteScanStartAll(unicast_list)

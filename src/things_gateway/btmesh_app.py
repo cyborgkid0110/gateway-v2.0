@@ -126,6 +126,7 @@ def get_composition_data_cmd(unicast):
                 + sum(struct.pack('<H', unicast))) & 0xFF
     msg = [OPCODE_GET_COMPOSITION_DATA, unicast, checksum]
     send_message_to_esp32(msg, '<BHB')
+    print("Send cmd")
 
 def add_appkey_cmd(unicast):
     checksum = ~(OPCODE_ADD_APP_KEY + sum(struct.pack('<H', unicast))) & 0xFF
@@ -459,16 +460,10 @@ class MeshGateway():
                 pass
             
             model_app_bind_cmd(unicast, sig_model[0], 0xFFFF)
+            time.sleep(0.05)
 
-        for sig_model in comp_data['elements'][0]['vendor_models']:
-            if (sig_model[0] == mesh_model.CONFIGURATION_CLIENT_MODEL) or (sig_model[0] == mesh_model.CONFIGURATION_SERVER_MODEL):
-                continue
-
-            if (sig_model[0] == mesh_model.REMOTE_PROVISIONING_SERVER_MODEL):
-                # enable Remote Provisioner Field
-                pass
-            
-            model_app_bind_cmd(unicast, sig_model[0][1], sig_model[0][0])
+        for model in comp_data['elements'][0]['vendor_models']:
+            model_app_bind_cmd(unicast, model[0][1], model[0][0])
 
     def recv_add_app_key_status(self):
         msg = self.ser.ser.read(4)
@@ -724,9 +719,11 @@ class MeshGateway():
         print(f'RSSI: {rssi}')
 
         dbus_msg = {
+            'remote': False,
+            'remote_addr': 0x0000,
             'uuid': uuid_str,
             'mac': addr_str, 
-            'device_name': device_name_str,      # this name should be assigned from device
+            'device_name': device_name_str.rstrip('\x00'),      # this name should be assigned from device
             'address_type': addr_type,
             'oob_info': oob_info,
             'adv_type': adv_type,
@@ -747,7 +744,6 @@ class MeshGateway():
             uuid_str = uuid.hex()
             print('-------------------New node info-----------------')
             print(f'UUID: {uuid_str}')
-            print(f'Node id: {hex(node_idx)}')
             print(f'Primary unicast: {hex(unicast)}')
             print(f'NetKey id: {hex(net_idx)}')
             print(f'Element: {hex(elem_num)}')
