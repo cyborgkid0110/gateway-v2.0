@@ -5,6 +5,7 @@ import struct
 import asyncio
 import uuid
 import threading
+import csv
 
 import dbus
 import dbus.service
@@ -30,24 +31,35 @@ OPCODE_ADD_UNPROV_DEV           = 0x05
 OPCODE_DELETE_DEVICE            = 0x06
 OPCODE_GET_COMPOSITION_DATA     = 0x07
 OPCODE_ADD_APP_KEY              = 0x08
-OPCODE_BIND_MODEL_APP           = 0x09
+OPCODE_BIND_MODEL_APP           = 0x09 
 OPCODE_SET_MODEL_PUB            = 0x0A
 OPCODE_SET_MODEL_SUB            = 0x0B
 OPCODE_RPR_SCAN_GET             = 0x0C
 OPCODE_RPR_SCAN_START           = 0x0D
 OPCODE_RPR_SCAN_STOP            = 0x0E
 OPCODE_RPR_LINK_GET             = 0x0F
-OPCODE_RPR_LINK_OPEN            = 0x00
+OPCODE_RPR_LINK_OPEN            = 0x10
 OPCODE_RPR_LINK_CLOSE           = 0x11
 OPCODE_REMOTE_PROVISIONING      = 0x12
+OPCODE_RELAY_GET                = 0x13
+OPCODE_RELAY_SET                = 0x14
+OPCODE_PROXY_GET                = 0x15
+OPCODE_PROXY_SET                = 0x16
+OPCODE_FRIEND_GET               = 0x17
+OPCODE_FRIEND_SET               = 0x18
+OPCODE_HEARTBEAT_PUB_GET        = 0x19
+OPCODE_HEARTBEAT_PUB_SET        = 0x1A
 
 OPCODE_SCAN_RESULT              = 0x40
 OPCODE_SEND_NEW_NODE_INFO       = 0x41
 OPCODE_RPR_SCAN_RESULT          = 0x42
 OPCODE_RPR_LINK_REPORT          = 0x43
+OPCODE_HEARTBEAT_MSG            = 0x44
 
 OPCODE_SENSOR_DATA_GET          = 0x50
 OPCODE_SENSOR_DATA_STATUS       = 0x51
+OPCODE_AC_CONTROL_STATE_GET     = 0x52
+OPCODE_AC_CONTROL_STATE_SET     = 0x53
 OPCODE_DEVICE_INFO_GET          = 0x80
 OPCODE_DEVICE_INFO_STATUS       = 0x81
 
@@ -112,7 +124,6 @@ def add_device_cmd(uuid, addr, addr_type, oob_info, bearer):
     checksum = ~(OPCODE_ADD_UNPROV_DEV + sum(uuid) + sum(addr) + addr_type + sum(struct.pack('<H', oob_info)) + bearer) & 0xFF
 
     msg = [OPCODE_ADD_UNPROV_DEV, uuid, addr, addr_type, oob_info, bearer, checksum]
-    print("CHECK")
     send_message_to_esp32(msg, '<B16s6sBHBB')
 
 def delete_node_cmd(unicast):
@@ -149,6 +160,7 @@ def model_pub_set_cmd(unicast, group_addr, model_id, company_id):
                 + sum(struct.pack('<H', company_id))) & 0xFF
     msg = [OPCODE_SET_MODEL_PUB, unicast, group_addr, model_id, company_id, checksum]
     send_message_to_esp32(msg, '<BHHHHB')
+
 def model_sub_set_cmd(unicast, group_addr, model_id, company_id):
     checksum = ~(OPCODE_SET_MODEL_SUB 
                 + sum(struct.pack('<H', unicast))
@@ -195,9 +207,53 @@ def remote_provisioning_cmd(remote_addr):
     msg = [OPCODE_REMOTE_PROVISIONING, remote_addr, checksum]
     send_message_to_esp32(msg, '<BHB')
 
+def node_role_get_cmd(unicast, opcode):
+    checksum = ~(opcode + sum(struct.pack('<H', unicast))) & 0xFF
+    msg = [opcode, unicast, checksum]
+    send_message_to_esp32(msg, '<BHB')
+
+def relay_set_cmd(unicast, relay_state, relay_retransmit):
+    checksum = ~(OPCODE_RELAY_SET + sum(struct.pack('<H', unicast))
+                + relay_state + relay_retransmit) & 0xFF
+    msg = [OPCODE_RELAY_SET, unicast, relay_state, relay_retransmit, checksum]
+    send_message_to_esp32(msg, '<BHBBB')
+
+def proxy_set_cmd(unicast, proxy_state):
+    checksum = ~(OPCODE_RELAY_SET + sum(struct.pack('<H', unicast)) + proxy_state) & 0xFF
+    msg = [OPCODE_RELAY_SET, unicast, proxy_state, checksum]
+    send_message_to_esp32(msg, '<BHBB')
+
+def friend_set_cmd(unicast, friend_state):
+    checksum = ~(OPCODE_RELAY_SET + sum(struct.pack('<H', unicast)) + friend_state) & 0xFF
+    msg = [OPCODE_RELAY_SET, unicast, friend_state, checksum]
+    send_message_to_esp32(msg, '<BHBB')
+
+def heartbeat_pub_get_cmd(unicast):
+    checksum = ~(OPCODE_HEARTBEAT_PUB_GET + sum(struct.pack('<H', unicast))) & 0xFF
+    msg = [OPCODE_HEARTBEAT_PUB_GET, unicast, checksum]
+    send_message_to_esp32(msg, '<BHB')
+
+def heartbeat_pub_set_cmd(unicast, dst, period, ttl):
+    checksum = ~(OPCODE_HEARTBEAT_PUB_SET 
+                + sum(struct.pack('<H', unicast))
+                + sum(struct.pack('<H', dst))
+                + period + ttl) & 0xFF
+    msg = [OPCODE_HEARTBEAT_PUB_SET, unicast, dst, period, ttl, checksum]
+    send_message_to_esp32(msg, '<BHHBBB')
+
 def sensor_model_get_cmd():
     msg = [OPCODE_SENSOR_DATA_GET]
     send_message_to_esp32(msg ,'<B')
+
+def ac_control_state_get_cmd():
+    pass
+
+def ac_control_state_set_cmd(unicast, device_id, device_state):
+    checksum = ~(OPCODE_AC_CONTROL_STATE_SET + device_id
+                + sum(struct.pack('<I', device_state))
+                + sum(struct.pack('<H', unicast))) & 0xFF
+    msg = [OPCODE_AC_CONTROL_STATE_SET, unicast, device_id, device_state, checksum]
+    send_message_to_esp32(msg, '<BHBIB')
 
 def test_simple_msg():
     msg = [OPCODE_TEST_SIMPLE_MSG]
@@ -274,6 +330,24 @@ class MeshGateway():
             self.recv_rpr_link_close()
         elif (opcode == OPCODE_REMOTE_PROVISIONING):
             self.recv_remote_prov_ack()
+        elif (opcode == OPCODE_RELAY_GET):
+            self.recv_relay_set()
+        elif (opcode == OPCODE_RELAY_SET):
+            self.recv_relay_set()
+        elif (opcode == OPCODE_PROXY_GET):
+            self.recv_proxy_get()
+        elif (opcode == OPCODE_PROXY_SET):
+            self.recv_proxy_set()
+        elif (opcode == OPCODE_FRIEND_GET):
+            self.recv_friend_get()
+        elif (opcode == OPCODE_FRIEND_SET):
+            self.recv_friend_set()
+        elif (opcode == OPCODE_HEARTBEAT_PUB_GET):
+            self.recv_heartbeat_pub_get()
+        elif (opcode == OPCODE_HEARTBEAT_PUB_SET):
+            self.recv_heartbeat_pub_set()
+        elif (opcode == OPCODE_HEARTBEAT_MSG):
+            self.recv_heartbeat_msg()
 
         # command from esp32
         elif (opcode == OPCODE_SCAN_RESULT):
@@ -286,6 +360,7 @@ class MeshGateway():
             self.recv_device_info_status()
         elif (opcode == OPCODE_SENSOR_DATA_STATUS):
             self.recv_sensor_data_status()
+        
     
     def recv_get_local_keys(self):
         msg = self.ser.ser.read(34)
@@ -462,7 +537,9 @@ class MeshGateway():
             model_app_bind_cmd(unicast, sig_model[0], 0xFFFF)
             time.sleep(0.05)
 
+        print(comp_data['elements'][0]['vendor_models'])        
         for model in comp_data['elements'][0]['vendor_models']:
+            print(model)
             model_app_bind_cmd(unicast, model[0][1], model[0][0])
 
     def recv_add_app_key_status(self):
@@ -489,7 +566,10 @@ class MeshGateway():
         print(f'Unicast address: {hex(ele_addr)}')
         print(f'Vendor Model ID: {hex(company_id)} {hex(model_id)}')
         print(f'Status code: {hex(status)}')
-        model_pub_set_cmd(ele_addr, 0xC000, model_id, company_id)
+        if model_id % 2 == 0:   # Server
+            model_sub_set_cmd(ele_addr, 0xC000, model_id + 1, company_id)
+        else:                   # Client
+            model_sub_set_cmd(ele_addr, 0xC000, model_id - 1, company_id)
 
     def recv_model_pub_status(self):
         msg = self.ser.ser.read(10)
@@ -503,12 +583,9 @@ class MeshGateway():
         print(f'Group address: {hex(group_addr)}')
         print(f'Vendor Model ID: {hex(company_id)} {hex(model_id)}')
         print(f'Status code: {hex(status)}')
-        # server model should be always even
-        # client model should be odd
-        if model_id % 2 == 0:
-            model_sub_set_cmd(ele_addr, 0xC000, model_id + 1, company_id)
-        else:
-            model_sub_set_cmd(ele_addr, 0xC000, model_id - 1, company_id)
+
+        print('------------Node Configuration Status------------')
+        print(f'Node {ele_addr} configured successfully')
 
     def recv_model_sub_status(self):
         msg = self.ser.ser.read(10)
@@ -522,9 +599,10 @@ class MeshGateway():
         print(f'Group address: {hex(group_addr)}')
         print(f'Vendor Model ID: {hex(company_id)} {hex(model_id)}')
         print(f'Status code: {hex(status)}')
-
-        print('------------Node Configuration Status------------')
-        print(f'Node {ele_addr} configured successfully')
+        if model_id % 2 == 0:   # Server
+            model_pub_set_cmd(ele_addr, 0xC000, model_id + 1, company_id)
+        else:                   # Client
+            model_pub_set_cmd(ele_addr, 0xC000, model_id - 1, company_id)
 
     def recv_rpr_scan_get(self):
         msg = self.ser.ser.read(7)
@@ -693,6 +771,69 @@ class MeshGateway():
         if gw_service is not None and gw_service_interface is not None:
             gw_service_interface.BtmeshAddNodeAck(dbus_msg)
 
+    def recv_relay_get(self):
+        msg = self.ser.ser.read(5)
+        unicast, relay_state, relay_retransmit, checksum = struct.unpack("<HBBB", msg)
+        if ((sum(msg) + OPCODE_RELAY_GET) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
+    def recv_relay_set(self):
+        msg = self.ser.ser.read(5)
+        unicast, relay_state, relay_retransmit, checksum = struct.unpack("<HBBB", msg)
+        if ((sum(msg) + OPCODE_RELAY_SET) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
+    def recv_friend_get(self):
+        msg = self.ser.ser.read(4)
+        unicast, friend_state, checksum = struct.unpack("<HBB", msg)
+        if ((sum(msg) + OPCODE_FRIEND_GET) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+    
+    def recv_friend_set(self):
+        msg = self.ser.ser.read(4)
+        unicast, friend_state, checksum = struct.unpack("<HBB", msg)
+        if ((sum(msg) + OPCODE_FRIEND_SET) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
+    def recv_proxy_get(self):
+        msg = self.ser.ser.read(4)
+        unicast, proxy_state, checksum = struct.unpack("<HBB", msg)
+        if ((sum(msg) + OPCODE_PROXY_GET) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
+    def recv_proxy_set(self):
+        msg = self.ser.ser.read(4)
+        unicast, proxy_state, checksum = struct.unpack("<HBB", msg)
+        if ((sum(msg) + OPCODE_PROXY_SET) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
+    def recv_heartbeat_pub_get(self):
+        msg = self.ser.ser.read(7)
+        unicast, dst, period, ttl, checksum = struct.unpack("<HHBBB", msg)
+        if ((sum(msg) + OPCODE_HEARTBEAT_PUB_GET) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
+    def recv_heartbeat_pub_set(self):
+        msg = self.ser.ser.read(7)
+        unicast, dst, period, ttl, checksum = struct.unpack("<HHBBB", msg)
+        if ((sum(msg) + OPCODE_HEARTBEAT_PUB_SET) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
+    def recv_heartbeat_msg(self):
+        msg = self.ser.ser.read(4)
+        feature, hops, checksum = struct.unpack("<HBB", msg)
+        if ((sum(msg) + OPCODE_HEARTBEAT_MSG) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
     def recv_scan_result(self):
         msg = self.ser.ser.read(49)
         device_name, uuid, addr, addr_type, oob_info, adv_type, bearer, rssi, checksum = struct.unpack('<20s16s6sBHBBbB', msg)
@@ -794,8 +935,9 @@ class MeshGateway():
             gw_service_interface.BtmeshScanResult(dbus_msg)
 
     def recv_sensor_data_status(self):        # publish message
-        msg = self.ser.ser.read(21)
-        unicast, temp, humid, light, co2, motion, dust, battery, checksum = struct.unpack('<HffHHBfBB', msg)
+        print("Received")
+        msg = self.ser.ser.read(23)
+        id, unicast, temp, humid, light, co2, motion, dust, battery, checksum = struct.unpack('<HHffHHBfBB', msg)
         if (sum(msg) + OPCODE_SENSOR_DATA_STATUS & 0xFF) != 0xFF:
             print('Wrong checksum')
         else:
@@ -804,6 +946,7 @@ class MeshGateway():
                 'unicast': unicast,
                 'battery': battery,
                 'data': {
+                    'pid': id,
                     'temp': temp, 
                     'hum': humid,      # this name should be assigned from device
                     'light': light,
@@ -812,10 +955,18 @@ class MeshGateway():
                     'dust': dust,
                 }
             }
-            if gw_service is None or gw_service_interface is None:
-                dbus_call_proxy_object()
-            if gw_service is not None and gw_service_interface is not None:
-                gw_service_interface.SaveSensorData(dbus_msg)
+            print(dbus_msg)
+            
+            csv_filename = 'btmesh_sensor.csv'
+            csv_headers = ['unicast', 'pid', 'temp', 'hum', 'light', 'co2', 'motion', 'dust']
+            with open(csv_filename, 'a', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                row = [unicast, id, temp, humid, light, co2, motion, dust]
+                writer.writerow(row)
+            #if gw_service is None or gw_service_interface is None:
+            #    dbus_call_proxy_object()
+            #if gw_service is not None and gw_service_interface is not None:
+            #    gw_service_interface.SaveSensorData(dbus_msg)
 
     def recv_device_info_status(self):
         msg = self.ser.ser.read(25)
@@ -836,6 +987,22 @@ class MeshGateway():
             #     dbus_call_proxy_object()
             # if gw_service is not None and gw_service_interface is not None:
             #     gw_service_interface.SaveSensorData(dbus_msg)
+
+    def recv_ac_control_state_get(self):
+        pass
+
+    def recv_ac_control_state_set(self):
+        msg = self.ser.ser.read(13)
+        unicast, device_id, device_state, status, checksum = struct.unpack('<HBIBB', msg)
+        print(f'Received: {msg}')
+        if ((status + OPCODE_TEST_SIMPLE_MSG + checksum) & 0xFF) != 0xFF:
+            print('Wrong checksum')
+            return
+
+        print('------------Universal IR Controller------------')
+        print(f'Device ID: {device_id}')
+        print(f'Device state: {device_state}')
+        print(f'Controller status: {status}')
 
     def recv_test_simple_msg(self):
         msg = self.ser.ser.read(2)
@@ -925,6 +1092,38 @@ class BluetoothMeshService(dbus.service.Object):
     def BtmeshDeleteNode(self, dev_info):
         delete_node_cmd(dev_info['unicast'])
 
+    @dbus.service.method('org.ipac.btmesh', in_signature='a{sa{sv}}', out_signature='')
+    def BtmeshUniversalIRController(self, actuator_target):
+        # actuator_target = {
+        #     'actuator_info': {
+        #         'unicast',
+        #         'function',
+        #     },
+        #     'control_state': {
+        #         'setpoint':
+        #         'mode',
+        #         'start_time',
+        #         'end_time',
+        #         'status',
+        #     }
+        # }
+        device_id = 1                           # currently fixed for test
+        if actuator_target['actuator_info']['function'] == 'AirCon':
+            if (isinstance(actuator_target['control_state']['setpoint'], int) == False or 
+                actuator_target['control_state']['setpoint'] > mesh_codes.AIRCON_MAX_TEMP or
+                actuator_target['control_state']['setpoint'] < mesh_codes.AIRCON_MIN_TEMP):
+                print('Invalid setpoint')
+                return
+
+            device_state = (actuator_target['control_state']['setpoint']
+                            - mesh_codes.AIRCON_MIN_TEMP
+                            + mesh_codes.IPAC_UNIVERSAL_IR_CONTROLLER_STATE_TEMP_17)
+            
+            print('Send actuator control')
+            ac_control_state_set_cmd(actuator_target['actuator_info']['unicast'],
+                                     device_id, device_state)
+            # with more properties, convert to state and send control for each property
+
 def dbus_call_proxy_object():
     global gw_service
     global gw_service_interface
@@ -956,7 +1155,7 @@ def btmesh_app():
     while True:
         if ser is None:
             print("Failed to establish serial connection. Retrying...")
-            time.sleep(2)
+            time.sleep(3)
             ser.setup_uart()
             continue
 

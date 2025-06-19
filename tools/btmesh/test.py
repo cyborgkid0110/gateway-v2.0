@@ -2,7 +2,7 @@ import paho.mqtt.client as mqtt
 import json
 
 # MQTT Configuration
-BROKER = "192.168.88.153"
+BROKER = "192.168.2.192"
 PORT = 1883
 KEEPALIVE = 60
 
@@ -73,6 +73,32 @@ def add_node():
     else:
         print(f"Failed to send message to {topic}")
 
+def ac_control():
+    topic = 'farm/control'
+    message = {
+        "operator": "actuator_control",
+        "status": 1,
+        "info": {
+            "room_id": 407,
+            "node_id": 1,
+            "protocol": "ble_mesh",
+            "function": 'AirCon',
+            "control_state": {
+                'setpoint': 17,
+                'mode': 1,
+                'start_time': 1,
+                'end_time': 1,
+                'status': 1,
+            }
+        }
+    }
+    result = client.publish(topic, json.dumps(message))
+    status = result.rc
+    if status == 0:
+        print(f"Message sent to {topic}")
+    else:
+        print(f"Failed to send message to {topic}")
+
 def subscribe_topic():
     topic = input("Enter topic to subscribe: ").strip()
     client.subscribe(topic)
@@ -84,7 +110,7 @@ def exit_program():
     client.disconnect()
 
 def unknown_command():
-    print("Unknown command. Available: send, subscribe, exit")
+    print("Unknown command.")
 
 # Command handler
 def handle_command(cmd):
@@ -92,7 +118,8 @@ def handle_command(cmd):
         "scan_device": scan_device,
         "subscribe": subscribe_topic,
         "exit": exit_program,
-        "add_node": add_node
+        "add_node": add_node,
+        'ac_control':  ac_control
     }
     action = commands.get(cmd, unknown_command)
     action()
