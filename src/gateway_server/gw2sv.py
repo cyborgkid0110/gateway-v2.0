@@ -232,7 +232,6 @@ class GatewayClient(mqtt.Client):
             pass
 
         elif (msg.topic == ACTUATOR_CONTROL_TOPIC):
-            print('OK')
             mqtt_recv_actuator_control(self.__msg)
 
     def on_publish(self, client, userdata, mid):

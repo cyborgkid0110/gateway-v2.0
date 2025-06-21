@@ -355,17 +355,14 @@ class MeshGateway():
             self.recv_scan_result()
         elif (opcode == OPCODE_SEND_NEW_NODE_INFO):
             self.recv_new_node_info()
-        elif (opcode == OPCODE_AC_CONTROL_STATE_SET):
-            
-            self.recv_ac_control_state_set()
 
         # custom model commands
         elif (opcode == OPCODE_DEVICE_INFO_STATUS):
             self.recv_device_info_status()
         elif (opcode == OPCODE_SENSOR_DATA_STATUS):
             self.recv_sensor_data_status()
-        
-        
+        elif (opcode == OPCODE_AC_CONTROL_STATE_SET):
+            self.recv_ac_control_state_set()
     
     def recv_get_local_keys(self):
         msg = self.ser.ser.read(34)
@@ -979,7 +976,6 @@ class MeshGateway():
                dbus_call_proxy_object()
             if gw_service is not None and gw_service_interface is not None:
                gw_service_interface.SaveSensorDataToThingsboard(dbus_msg)
-            
 
     def recv_device_info_status(self):
         msg = self.ser.ser.read(25)
