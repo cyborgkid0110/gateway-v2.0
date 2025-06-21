@@ -46,6 +46,10 @@ BROKER_SERVER = '192.168.88.153'     # test broker
 PORT = 1883
 KEEPALIVE = 60
 
+# Thingsboard test
+access_token = "2djXfqHWLvqQmrW9B5OX"   # -u <access_token>
+DEV_TOPIC = "v1/devices/me/telemetry"      # -t <topic>
+
 room_id = 407         # this must be taken from database
 
 client = None       # MQTT client
@@ -450,6 +454,21 @@ class GatewayService(dbus.service.Object):
             if (res[0] != 0):
                 print('Cannot send delete node result to server')
 
+    @dbus.service.method('org.ipac.gateway', in_signature='a{sv}', out_signature='')
+    def SaveSensorDataToThingsboard(self, sensor_data):
+        if room_id is None:
+            print("Room ID is unknown.")
+            return
+        msg = {
+            'temperature': round(sensor_data['temp'], 2),
+            'humidity': round(sensor_data['hum'], 2)
+        }
+        
+        pub_msg = json.dumps(msg)
+        res = client.publish(DEV_TOPIC, pub_msg, qos=1)
+        if (res[0] != 0):
+            print('Cannot send delete node result to server')
+
 def update_node_id():
     global room_id
 
@@ -481,6 +500,7 @@ def mqtt_handler():
     ]
 
     client = GatewayClient(topic)
+    client.username_pw_set(access_token)
     client.connect(BROKER_SERVER, PORT, KEEPALIVE)
     client.loop_forever()
 

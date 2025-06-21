@@ -950,15 +950,22 @@ class MeshGateway():
                 'protocol': 'ble_mesh',
                 'unicast': unicast,
                 'battery': battery,
-                'data': {
-                    'pid': id,
-                    'temp': temp, 
-                    'hum': humid,      # this name should be assigned from device
-                    'light': light,
-                    'co2': co2,
-                    'motion': motion,
-                    'dust': dust,
-                }
+                # 'data': {
+                #     'pid': id,
+                #     'temp': temp, 
+                #     'hum': humid,      # this name should be assigned from device
+                #     'light': light,
+                #     'co2': co2,
+                #     'motion': motion,
+                #     'dust': dust,
+                # }
+                'pid': id,
+                'temp': temp, 
+                'hum': humid,
+                'light': light,
+                'co2': co2,
+                'motion': motion,
+                'dust': dust,
             }
             print(dbus_msg)
             
@@ -968,10 +975,11 @@ class MeshGateway():
                 writer = csv.writer(csvfile)
                 row = [unicast, id, temp, humid, light, co2, motion, dust]
                 writer.writerow(row)
-            #if gw_service is None or gw_service_interface is None:
-            #    dbus_call_proxy_object()
-            #if gw_service is not None and gw_service_interface is not None:
-            #    gw_service_interface.SaveSensorData(dbus_msg)
+            if gw_service is None or gw_service_interface is None:
+               dbus_call_proxy_object()
+            if gw_service is not None and gw_service_interface is not None:
+               gw_service_interface.SaveSensorDataToThingsboard(dbus_msg)
+            
 
     def recv_device_info_status(self):
         msg = self.ser.ser.read(25)
