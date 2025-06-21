@@ -31,7 +31,7 @@ from gi.repository import GLib
 
 SENSOR_DATA_TOPIC = "farm/monitor/sensor"
 ACTUATOR_DATA_TOPIC = "farm/monitor/actuator"
-SEND_SETPOINT_TOPIC = "farm/control"
+ACTUATOR_CONTROL_TOPIC = "farm/control"
 
 SCAN_DEVICE_TOPIC = "farm/node/scan"
 ADD_NODE_TOPIC = "farm/node/add"
@@ -39,8 +39,8 @@ NEW_NODE_TOPIC = "farm/node/new"
 DELETE_NODE_TOPIC = "farm/node/delete"
 KEEPALIVE_ACK_TOPIC = "farm/monitor/alive"
 
+# BROKER_SERVER = '192.168.2.192'     # test broker
 BROKER_SERVER = '192.168.88.153'     # test broker
-# BROKER_SERVER = '192.168.8.101'     # test broker
 # BROKER_SERVER = '192.168.2.81'     # test broker
 # BROKER_SERVER = 'test.mosquitto.org'     # test broker
 PORT = 1883
@@ -123,7 +123,18 @@ def mqtt_recv_new_node_info(msg):
                     if uuid != msg['info']['dev_info']['uuid']:
                         print("Conflict UUIDs with node unicast")
                 else:
-                    record = database.RecordMaker(msg['info']['dev_info'])
+                    # record = database.RecordMaker(msg['info']['dev_info'])
+                    record = {
+                        'fields': ['node_id', 'function', 'sync_state', 'protocol', 'time'],
+                        'values': (msg['info']['dev_info']['node_id'], msg['info']['dev_info']['function'], 1 , msg['info']['protocol'], time.time())
+                    }
+                    db.insertOneRecord("Registration", record['fields'], record['values'])
+                    db = SqliteDAO(database.location)
+                    remote = True if (msg['info']['remote_prov']['enable'] == 1) else False
+                    record = {
+                        'fields': ['node_id', 'uuid', 'unicast', 'remote'],
+                        'values': (msg['info']['dev_info']['node_id'], msg['info']['dev_info']['uuid'], msg['info']['dev_info']['unicast'], remote)
+                    }
                     db.insertOneRecord("BTMeshNodes", record['fields'], record['values'])
                     print(f"Add new node record: {record['fields']}, {record['values']}")
                         
@@ -140,6 +151,36 @@ def mqtt_recv_delete_node(msg):
         if msg['operator'] == 'delete_node':
             if (msg['info']['protocol'] == 'ble_mesh'):
                 btmesh_interface.BtmeshDeleteNode(msg['info']['dev_info'])
+            elif (msg['info']['protocol'] == 'wifi'):
+                pass
+
+def mqtt_recv_actuator_control(msg):
+    if btmesh_service is None or btmesh_interface is None:
+        status = dbus_call_proxy_object()
+        if status == False:
+            return
+    
+    # print('Here')
+    if (msg['info']['room_id'] == room_id):
+        if msg['operator'] == 'actuator_control':
+            # get unicast from database
+            unicast = 6                     # fixed for test only
+            actuator_target = {
+                'actuator_info': {
+                    'unicast': unicast,
+                    'function': msg['info']['function'],
+                },
+                'control_state': {
+                    'setpoint': msg['info']['control_state']['setpoint'],
+                    'mode': msg['info']['control_state']['mode'],
+                    'start_time': msg['info']['control_state']['start_time'],
+                    'end_time': msg['info']['control_state']['end_time'],
+                    'status': msg['info']['control_state']['status'],
+                }
+            }
+
+            if (msg['info']['protocol'] == 'ble_mesh'):
+                btmesh_interface.BtmeshUniversalIRController(actuator_target)
             elif (msg['info']['protocol'] == 'wifi'):
                 pass
 
@@ -169,6 +210,7 @@ class GatewayClient(mqtt.Client):
         """Called when a message has been received on a topic that the client subscribes to"""
         # self.__msg = msg.payload.decode("utf-8")
         self.__msg = json.loads(msg.payload.decode())
+        print('Received')
         
         if room_id is None:
             print("Room ID is unknown.")
@@ -176,14 +218,18 @@ class GatewayClient(mqtt.Client):
 
         if (msg.topic == SCAN_DEVICE_TOPIC):
             mqtt_recv_scan_device(self.__msg)
-        if (msg.topic == ADD_NODE_TOPIC):
+        elif (msg.topic == ADD_NODE_TOPIC):
             mqtt_recv_add_device(self.__msg)
-        if (msg.topic == NEW_NODE_TOPIC):
+        elif (msg.topic == NEW_NODE_TOPIC):
             mqtt_recv_new_node_info(self.__msg)
-        if (msg.topic == DELETE_NODE_TOPIC):
+        elif (msg.topic == DELETE_NODE_TOPIC):
             mqtt_recv_delete_node(self.__msg)
-        if (msg.topic == KEEPALIVE_ACK_TOPIC):
+        elif (msg.topic == KEEPALIVE_ACK_TOPIC):
             pass
+
+        elif (msg.topic == ACTUATOR_CONTROL_TOPIC):
+            print('OK')
+            mqtt_recv_actuator_control(self.__msg)
 
     def on_publish(self, client, userdata, mid):
         '''Called when publish() function has been used'''
@@ -380,8 +426,29 @@ class GatewayService(dbus.service.Object):
                 db.insertOneRecord("SensorMonitor", record['fields'], record['values'])
                 print(f"Inserted sensor data record: {record['fields']}, {record['values']}")
                 db = SqliteDAO(database.location)
-                db.insertOneRecord("NodeHealth", ['battery'], sensor_data['battery'])
+                db.insertOneRecord("NodeHealth", ['node_id', 'battery'], (node_id[0][0], sensor_data['battery']))
                 print(f"Inserted battery data record: {sensor_data['battery']}")
+
+            msg = {
+                'operator': 'sensor_data',
+                'status': 1,
+                'info': {
+                    'room_id': room_id,
+                    'node_id'
+                    'protocol': 'ble_mesh',
+                    'pid': sensor_data['data']['pid'],
+                    'temp': sensor_data['data']['temp'], 
+                    'hum': sensor_data['data']['hum'],      # this name should be assigned from device
+                    'light': sensor_data['data']['light'],
+                    'co2': sensor_data['data']['co2'],
+                    'motion': sensor_data['data']['motion'],
+                    'dust': sensor_data['data']['dust'],
+                }
+            }
+            pub_msg = json.dumps(msg)
+            res = client.publish(SENSOR_DATA_TOPIC, pub_msg)
+            if (res[0] != 0):
+                print('Cannot send delete node result to server')
 
 def update_node_id():
     global room_id
@@ -410,6 +477,7 @@ def mqtt_handler():
         NEW_NODE_TOPIC,
         DELETE_NODE_TOPIC,
         KEEPALIVE_ACK_TOPIC,
+        ACTUATOR_CONTROL_TOPIC,
     ]
 
     client = GatewayClient(topic)
