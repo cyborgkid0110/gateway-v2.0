@@ -37,18 +37,19 @@ SCAN_DEVICE_TOPIC = "farm/node/scan"
 ADD_NODE_TOPIC = "farm/node/add"
 NEW_NODE_TOPIC = "farm/node/new"
 DELETE_NODE_TOPIC = "farm/node/delete"
+CONFIG_NODE_TOPIC = "farm/node/config"
 KEEPALIVE_ACK_TOPIC = "farm/monitor/alive"
 
 # BROKER_SERVER = '192.168.2.192'     # test broker
-BROKER_SERVER = '192.168.88.153'     # test broker
+# BROKER_SERVER = '192.168.88.153'     # test broker
 # BROKER_SERVER = '192.168.2.81'     # test broker
-# BROKER_SERVER = '192.168.88.192'     # test broker
+BROKER_SERVER = '192.168.88.192'     # test broker
 PORT = 1883
 KEEPALIVE = 60
 
 # Thingsboard test
-access_token = "A7OnpaZFnln7WHnVl1sS"   # -u <access_token>
-DEV_TOPIC = "v1/gateway/telemetry"      # -t <topic>
+access_token = "A7OnpaZFnln7WHnVl1sS"   
+DEV_TOPIC = "v1/gateway/telemetry"      
 
 room_id = 407         # this must be taken from database
 
@@ -164,7 +165,6 @@ def mqtt_recv_actuator_control(msg):
         if status == False:
             return
     
-    # print('Here')
     if (msg['info']['room_id'] == room_id):
         if msg['operator'] == 'actuator_control':
             # get unicast from database
@@ -185,6 +185,24 @@ def mqtt_recv_actuator_control(msg):
 
             if (msg['info']['protocol'] == 'ble_mesh'):
                 btmesh_interface.BtmeshUniversalIRController(actuator_target)
+            elif (msg['info']['protocol'] == 'wifi'):
+                pass
+
+def mqtt_recv_config_node(msg):
+    if btmesh_service is None or btmesh_interface is None:
+        status = dbus_call_proxy_object()
+        if status == False:
+            return
+    
+    unicast = 9
+    if (msg['info']['room_id'] == room_id):
+        if msg['operator'] == 'config_node':
+            if (msg['info']['protocol'] == 'ble_mesh'):
+                dbus_msg = {
+                    'unicast': unicast,
+                    'relay_state': msg['info']['config']['relay'],
+                }
+                btmesh_interface.BtmeshRelaySet(dbus_msg)
             elif (msg['info']['protocol'] == 'wifi'):
                 pass
 
@@ -227,6 +245,8 @@ class GatewayClient(mqtt.Client):
             mqtt_recv_new_node_info(self.__msg)
         elif (msg.topic == DELETE_NODE_TOPIC):
             mqtt_recv_delete_node(self.__msg)
+        elif (msg.topic == CONFIG_NODE_TOPIC):
+            mqtt_recv_config_node(self.__msg)
         elif (msg.topic == KEEPALIVE_ACK_TOPIC):
             pass
 
@@ -450,7 +470,7 @@ class GatewayService(dbus.service.Object):
             pub_msg = json.dumps(msg)
             res = client.publish(SENSOR_DATA_TOPIC, pub_msg)
             if (res[0] != 0):
-                print('Cannot send delete node result to server')
+                print('Cannot send sensor data result to server')
 
     @dbus.service.method('org.ipac.gateway', in_signature='a{sv}', out_signature='')
     def SaveSensorDataToThingsboard(self, sensor_data):
@@ -479,7 +499,7 @@ class GatewayService(dbus.service.Object):
         pub_msg = json.dumps(msg)
         res = client.publish(DEV_TOPIC, pub_msg, qos=1)
         if (res[0] != 0):
-            print('Cannot send delete node result to server')
+            print('Cannot send sensor data result to Thingsboard')
 
 def update_node_id():
     global room_id
@@ -507,12 +527,13 @@ def mqtt_handler():
         ADD_NODE_TOPIC,
         NEW_NODE_TOPIC,
         DELETE_NODE_TOPIC,
+        CONFIG_NODE_TOPIC,
         KEEPALIVE_ACK_TOPIC,
         ACTUATOR_CONTROL_TOPIC,
     ]
 
     client = GatewayClient(topic)
-    client.username_pw_set(access_token)
+    # client.username_pw_set(access_token)
     client.connect(BROKER_SERVER, PORT, KEEPALIVE)
     client.loop_forever()
 

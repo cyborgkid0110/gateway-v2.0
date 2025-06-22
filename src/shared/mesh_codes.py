@@ -3,6 +3,11 @@ PB_ADV    = 0x01
 PB_GATT   = 0x02
 PB_BEARER = 0x04
 
+# Relay State
+RELAY_DISABLE       = 0x00
+RELAY_ENABLE        = 0x01
+RELAY_NOT_SUPPORTED = 0x02
+
 # Remote Provisioning Server Status Codes
 REMOTE_PROVISIONER_STATUS_SUCCESS                                   = 0x00
 REMOTE_PROVISIONER_STATUS_SCANNING_CANNOT_START                     = 0x01

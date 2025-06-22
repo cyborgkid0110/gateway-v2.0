@@ -87,13 +87,34 @@ def ac_control():
             "room_id": 407,
             "node_id": 1,
             "protocol": "ble_mesh",
-            "function": 'AirCon',
+            "function": 'Air',
             "control_state": {
                 'setpoint': 17,
                 'mode': 1,
                 'start_time': 1,
                 'end_time': 1,
                 'status': 1,
+            }
+        }
+    }
+    result = client.publish(topic, json.dumps(message))
+    status = result.rc
+    if status == 0:
+        print(f"Message sent to {topic}")
+    else:
+        print(f"Failed to send message to {topic}")
+
+def relay_set():
+    topic = 'farm/node/config'
+    message = {
+        "operator": "config_node",
+        "status": 1,
+        "info": {
+            "room_id": 407,
+            "node_id": 1,
+            "protocol": "ble_mesh",
+            "config": {
+                "relay": 1
             }
         }
     }
@@ -124,7 +145,8 @@ def handle_command(cmd):
         "subscribe": subscribe_topic,
         "exit": exit_program,
         "add_node": add_node,
-        'ac_control':  ac_control
+        'ac_control':  ac_control,
+        'relay_set': relay_set,
     }
     action = commands.get(cmd, unknown_command)
     action()

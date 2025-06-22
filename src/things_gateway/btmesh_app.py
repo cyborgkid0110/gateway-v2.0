@@ -787,6 +787,11 @@ class MeshGateway():
             print('Wrong checksum')
             return
 
+        print('----------------Relay set result---------------')
+        print(f'Unicast: {unicast}')
+        print(f'Relay state: {relay_state}')
+        print(f'Relay retransmit: {relay_retransmit}')
+
     def recv_friend_get(self):
         msg = self.ser.ser.read(4)
         unicast, friend_state, checksum = struct.unpack("<HBB", msg)
@@ -1101,6 +1106,11 @@ class BluetoothMeshService(dbus.service.Object):
     @dbus.service.method('org.ipac.btmesh', in_signature='a{sv}', out_signature='')
     def BtmeshDeleteNode(self, dev_info):
         delete_node_cmd(dev_info['unicast'])
+
+    @dbus.service.method('org.ipac.btmesh', in_signature='a{sv}', out_signature='')
+    def BtmeshRelaySet(self, config):
+        relay_retransmit = 0x00
+        relay_set_cmd(config['unicast'], config['relay_state'], relay_retransmit)
 
     @dbus.service.method('org.ipac.btmesh', in_signature='a{sa{sv}}', out_signature='')
     def BtmeshUniversalIRController(self, actuator_target):
