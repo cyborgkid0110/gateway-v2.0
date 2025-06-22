@@ -2,17 +2,20 @@ import paho.mqtt.client as mqtt
 import json
 
 # MQTT Configuration
-BROKER = "192.168.88.153"
+BROKER = "192.168.88.192"
 # BROKER = "192.168.2.81"
 PORT = 1883
 KEEPALIVE = 60
+
+access_token = "2djXfqHWLvqQmrW9B5OX"
 
 # MQTT client setup
 client = mqtt.Client()
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("Connected to MQTT Broker!")
+        return
+        # print("Connected to MQTT Broker!")
     else:
         print(f"Failed to connect, return code {rc}")
 
@@ -20,6 +23,7 @@ def on_message(client, userdata, msg):
     print(f"Received on {msg.topic}: {msg.payload.decode()}")
 
 def connect_mqtt():
+    # client.username_pw_set(access_token)
     client.on_connect = on_connect
     client.on_message = on_message
     client.connect(BROKER, PORT, KEEPALIVE)

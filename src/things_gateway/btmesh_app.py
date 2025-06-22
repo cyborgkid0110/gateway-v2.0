@@ -328,8 +328,8 @@ class MeshGateway():
             self.recv_rpr_link_open()
         elif (opcode == OPCODE_RPR_LINK_CLOSE):
             self.recv_rpr_link_close()
-        elif (opcode == OPCODE_REMOTE_PROVISIONING):
-            self.recv_remote_prov_ack()
+        # elif (opcode == OPCODE_REMOTE_PROVISIONING):
+        #     self.recv_remote_prov_ack()
         elif (opcode == OPCODE_RELAY_GET):
             self.recv_relay_set()
         elif (opcode == OPCODE_RELAY_SET):
@@ -966,16 +966,17 @@ class MeshGateway():
             }
             print(dbus_msg)
             
-            csv_filename = 'btmesh_sensor.csv'
-            csv_headers = ['unicast', 'pid', 'temp', 'hum', 'light', 'co2', 'motion', 'dust']
-            with open(csv_filename, 'a', newline='') as csvfile:
-                writer = csv.writer(csvfile)
-                row = [unicast, id, temp, humid, light, co2, motion, dust]
-                writer.writerow(row)
+            # csv_filename = 'btmesh_sensor.csv'
+            # csv_headers = ['unicast', 'pid', 'temp', 'hum', 'light', 'co2', 'motion', 'dust']
+            # with open(csv_filename, 'a', newline='') as csvfile:
+            #     writer = csv.writer(csvfile)
+            #     row = [unicast, id, temp, humid, light, co2, motion, dust]
+            #     writer.writerow(row)
             if gw_service is None or gw_service_interface is None:
                dbus_call_proxy_object()
             if gw_service is not None and gw_service_interface is not None:
                gw_service_interface.SaveSensorDataToThingsboard(dbus_msg)
+            #    return
 
     def recv_device_info_status(self):
         msg = self.ser.ser.read(25)

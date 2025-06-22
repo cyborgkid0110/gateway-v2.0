@@ -42,13 +42,13 @@ KEEPALIVE_ACK_TOPIC = "farm/monitor/alive"
 # BROKER_SERVER = '192.168.2.192'     # test broker
 BROKER_SERVER = '192.168.88.153'     # test broker
 # BROKER_SERVER = '192.168.2.81'     # test broker
-# BROKER_SERVER = 'test.mosquitto.org'     # test broker
+# BROKER_SERVER = '192.168.88.192'     # test broker
 PORT = 1883
 KEEPALIVE = 60
 
 # Thingsboard test
-access_token = "2djXfqHWLvqQmrW9B5OX"   # -u <access_token>
-DEV_TOPIC = "v1/devices/me/telemetry"      # -t <topic>
+access_token = "A7OnpaZFnln7WHnVl1sS"   # -u <access_token>
+DEV_TOPIC = "v1/gateway/telemetry"      # -t <topic>
 
 room_id = 407         # this must be taken from database
 
@@ -214,7 +214,6 @@ class GatewayClient(mqtt.Client):
         """Called when a message has been received on a topic that the client subscribes to"""
         # self.__msg = msg.payload.decode("utf-8")
         self.__msg = json.loads(msg.payload.decode())
-        print('Received')
         
         if room_id is None:
             print("Room ID is unknown.")
@@ -458,11 +457,25 @@ class GatewayService(dbus.service.Object):
         if room_id is None:
             print("Room ID is unknown.")
             return
+
+        device = None
+        if sensor_data['unicast'] == 7:
+            device = "ipac_sensor_node_1"
+        else:
+            device = "ipac_sensor_node_2"
+
         msg = {
-            'temperature': round(sensor_data['temp'], 2),
-            'humidity': round(sensor_data['hum'], 2)
+            device: [
+                {
+                "ts": int(time.time())*1000,
+                "values": {
+                    "temperature": round(sensor_data['temp'], 2),
+                    "humidity": round(sensor_data['hum'], 2)
+                }
+                }
+            ],
         }
-        
+        # print("Here")
         pub_msg = json.dumps(msg)
         res = client.publish(DEV_TOPIC, pub_msg, qos=1)
         if (res[0] != 0):
